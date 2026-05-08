@@ -1,0 +1,13 @@
+node_modules/
+backend/browser_profile/
+backend/logs/
+backend/errors/
+backend/screenshots/
+backend/raw_html/
+backend/auditor.db
+backend/audit.log
+frontend/dist/
+.env
+.DS_Store
+*.png
+*.html

@@ -1,0 +1,36 @@
+# DOCUMENTAÇÃO DO SISTEMA - BUSCADOR DE PREÇOS PRO
+
+Este documento descreve a arquitetura e a lógica do sistema após a refatoração profissional utilizando **Playwright**.
+
+## 1. ARQUITETURA MODULAR
+O sistema foi reestruturado para ser modular e escalável:
+- **`backend/browser/`**: Gerenciador de navegador com suporte a contexto persistente.
+- **`backend/stores/`**: Lógicas específicas de cada loja (Amazon, Mercado Livre, Magalu, Casas Bahia).
+- **`backend/extractors/`**: Extração de dados via JSON-LD e seletores robustos.
+- **`backend/validators/`**: Detectores de bot e validadores de relevância.
+- **`backend/utils/`**: Utilitários para comportamento humano e delays.
+
+## 2. ESTRATÉGIAS ANTI-BOT
+Para evitar bloqueios (403, Captchas), o sistema implementa:
+- **Persistent Context**: Uso de perfis de navegador reais para manter sessões e cookies.
+- **Human Behavior**: Simulação de scroll gradual, movimentos de mouse e digitação humana.
+- **Headful Mode**: O navegador executa em modo visível (headless: false), o que reduz drasticamente a taxa de detecção.
+- **Throttling**: Pausas randômicas entre requisições e processamento sequencial de lojas.
+
+## 3. LÓGICA DE EXTRAÇÃO
+- **JSON-LD**: Prioridade máxima para extração de dados estruturados embutidos no HTML.
+- **Fallback Selectors**: Lista de seletores para garantir extração mesmo com mudanças leves no layout.
+- **Normalização**: Preços e títulos são padronizados para garantir consistência no banco de dados.
+
+## 4. FILTRO DE RELEVÂNCIA
+Sistema avançado que utiliza:
+- **Similaridade de Termos**: Score baseado nas palavras-chave buscadas.
+- **Negative Keywords**: Bloqueio automático de acessórios (capas, cabos, películas).
+
+## 5. REQUISITOS TÉCNICOS
+- **Node.js** v18+
+- **Playwright**
+- **SQLite** para armazenamento de histórico e configurações.
+
+---
+*Documento atualizado em: 08/05/2026*
