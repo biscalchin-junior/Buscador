@@ -7,7 +7,7 @@ chromium.use(stealth);
 class BrowserManager {
     constructor() {
         this.context = null;
-        // Caminho absoluto baseado na localização deste arquivo
+        // Caminho absoluto baseado na localização deste arquivossssssssssssssssss
         this.browserPath = path.join(__dirname, '..', 'browser_profile');
     }
 
@@ -18,7 +18,7 @@ class BrowserManager {
         if (this.context) return this.context;
 
         console.log(`[BrowserManager] Iniciando contexto persistente em: ${this.browserPath}`);
-        
+
         this.context = await chromium.launchPersistentContext(this.browserPath, {
             headless: false, // Sempre visível como pedido
             viewport: { width: 1920, height: 1080 },
@@ -44,10 +44,10 @@ class BrowserManager {
     async newPage() {
         const context = await this.initialize();
         const page = await context.newPage();
-        
+
         // Bloquear recursos desnecessários para economizar banda/processamento (opcional, mas cuidado com anti-bot)
         // await page.route('**/*.{png,jpg,jpeg,gif,svg}', route => route.abort()); 
-        
+
         return page;
     }
 
