@@ -22,6 +22,7 @@ function initDb() {
     db.run(`ALTER TABLE products ADD COLUMN is_active BOOLEAN DEFAULT 1`, (err) => {});
     db.run(`ALTER TABLE products ADD COLUMN is_deleted BOOLEAN DEFAULT 0`, (err) => {});
     db.run(`ALTER TABLE products ADD COLUMN store TEXT DEFAULT 'Amazon'`, (err) => {});
+    db.run(`ALTER TABLE products ADD COLUMN image_url TEXT`, (err) => {});
 
     db.run(`
       CREATE TABLE IF NOT EXISTS price_history (
@@ -59,13 +60,13 @@ function initDb() {
   });
 }
 
-function saveProduct(asin, title, url, category = 'Geral', store = 'Amazon') {
+function saveProduct(asin, title, url, category = 'Geral', store = 'Amazon', image_url = null) {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO products (asin, title, url, category, is_active, is_deleted, store) 
-       VALUES (?, ?, ?, ?, 1, 0, ?)
-       ON CONFLICT(asin) DO UPDATE SET title=excluded.title, is_deleted=0`,
-      [asin, title, url, category, store],
+      `INSERT INTO products (asin, title, url, category, is_active, is_deleted, store, image_url) 
+       VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+       ON CONFLICT(asin) DO UPDATE SET title=excluded.title, is_deleted=0, image_url=COALESCE(excluded.image_url, products.image_url)`,
+      [asin, title, url, category, store, image_url],
       function (err) {
         if (err) reject(err);
         else resolve();
@@ -126,7 +127,7 @@ function saveHistory(historyData) {
 function getHistory(includeDeleted = false) {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT p.title, p.url, p.category, p.is_active, p.is_deleted, p.store, h.* 
+      `SELECT p.title, p.url, p.category, p.image_url, p.is_active, p.is_deleted, p.store, h.* 
        FROM products p 
        JOIN price_history h ON p.asin = h.asin 
        WHERE p.is_deleted = ?

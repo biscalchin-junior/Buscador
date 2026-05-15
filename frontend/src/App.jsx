@@ -564,6 +564,7 @@ function App() {
          <div className="input-group" style={{ width: '120px' }}>
             <label>Pág.</label>
             <select value={itemsPerPage} onChange={e => { setItemsPerPage(e.target.value === 'all' ? 'all' : Number(e.target.value)); setCurrentPage(1); }}>
+               <option value={5}>5</option>
                <option value={20}>20</option>
                <option value={40}>40</option>
                <option value={80}>80</option>
@@ -588,16 +589,16 @@ function App() {
           <thead>
             <tr>
               <th>Produto e Variação</th>
+              <th>Preço DE</th>
               <th 
                 onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} 
                 style={{ cursor: 'pointer', userSelect: 'none', color: sortOrder ? 'var(--primary-color)' : 'var(--text-secondary)' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  Preço Atual
+                  Preço À Vista
                   {sortOrder === 'asc' ? <TrendingUp size={14}/> : sortOrder === 'desc' ? <TrendingDown size={14}/> : <Filter size={14} style={{ opacity: 0.3 }}/>}
                 </div>
               </th>
-              <th>Preço À Vista / De</th>
               <th>Parcelamento</th>
               <th>Status</th>
               <th>Histórico</th>
@@ -638,46 +639,61 @@ function App() {
                 return (
                   <tr key={item.asin} style={{ opacity: (!isActive && viewMode !== 'trash') ? 0.5 : 1 }}>
                     <td>
-                      <div className="product-info">
-                        <a href={latest.url} target="_blank" rel="noreferrer" className="product-title">
-                          {latest.title || 'Título Indisponível'}
-                        </a>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
-                          <span className="product-asin">ID: {item.asin}</span>
-                          <span className="product-asin">| Loja: <strong style={{ color: 'var(--primary-color)' }}>{item.store || 'Amazon'}</strong></span>
-                          <span className="page-info-badge">Página: {latest.page_found || 1}</span>
-                        </div>
-                        
-                        {/* Render Variations */}
-                        {latest.product_variations && Object.keys(latest.product_variations).length > 0 && (
-                          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                             {Object.entries(latest.product_variations).map(([k, v]) => (
-                                <span key={k} style={{ background: 'var(--surface-color)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', border: '1px solid var(--border-light)' }}>
-                                  <strong>{k}:</strong> {v}
-                                </span>
-                             ))}
+                      <div className="product-info" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                        {item.image_url && (
+                           <div style={{ flexShrink: 0, width: '50px', height: '50px', backgroundColor: 'white', borderRadius: '6px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '2px' }}>
+                             <img src={item.image_url} alt="Produto" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                           </div>
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <a href={latest.url} target="_blank" rel="noreferrer" className="product-title">
+                            {latest.title || 'Título Indisponível'}
+                          </a>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                            <span className="product-asin">ID: {item.asin}</span>
+                            <span className="product-asin">| Loja: <strong style={{ color: 'var(--primary-color)' }}>{item.store || 'Amazon'}</strong></span>
+                            <span className="page-info-badge">Página: {latest.page_found || 1}</span>
                           </div>
+                          
+                          {/* Render Variations */}
+                          {latest.product_variations && Object.keys(latest.product_variations).length > 0 && (
+                            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                               {Object.entries(latest.product_variations).map(([k, v]) => (
+                                  <span key={k} style={{ background: 'var(--surface-color)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', border: '1px solid var(--border-light)' }}>
+                                    <strong>{k}:</strong> {v}
+                                  </span>
+                               ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* PREÇO DE */}
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                        {latest.old_price && latest.old_price > latest.main_price ? (
+                          <>
+                            <span style={{ fontSize: '0.9rem', color: 'var(--text-dim)', textDecoration: 'line-through', opacity: 0.6 }}>
+                              R$ {latest.old_price.toFixed(2)}
+                            </span>
+                            {latest.real_discount > 0 && (
+                              <span className="badge badge-down" style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', width: 'fit-content' }}>
+                                -{latest.real_discount}% OFF
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>—</span>
                         )}
                       </div>
                     </td>
 
-                    {/* PREÇO À VISTA + "DE:" */}
+                    {/* PREÇO À VISTA */}
                     <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                        <span style={{ fontSize: '1.5rem', fontWeight: '800', color: 'white', letterSpacing: '-0.02em' }}>
-                          R$ {latest.main_price ? latest.main_price.toFixed(2) : '0.00'}
-                        </span>
-                        {latest.old_price && latest.old_price > latest.main_price && (
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', textDecoration: 'line-through', opacity: 0.6 }}>
-                            De: R$ {latest.old_price.toFixed(2)}
-                          </span>
-                        )}
-                        {latest.real_discount > 0 && (
-                          <span className="badge badge-down" style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', width: 'fit-content' }}>
-                            -{latest.real_discount}% OFF
-                          </span>
-                        )}
-                      </div>
+                      <span style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--success)', letterSpacing: '-0.02em' }}>
+                        R$ {latest.main_price ? latest.main_price.toFixed(2) : '0.00'}
+                      </span>
                     </td>
 
                     {/* PARCELAMENTO + JUROS */}

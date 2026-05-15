@@ -8,6 +8,8 @@ const {
   deleteAllTrash
 } = require('./database');
 const { scrapeAmazon } = require('./scraper');
+const logger = require('./logger');
+const emitLog = logger.emitLog;
 
 const app = express();
 const PORT = 4000;
@@ -23,20 +25,6 @@ let stopAudit = false;
 let currentAuditProgress = { current: 0, total: 0, active: false };
 
 // ========== SISTEMA DE LOGS EM TEMPO REAL (SSE) ==========
-let sseClients = [];
-
-function emitLog(msg, type = 'info') {
-  const logEntry = {
-    id: Date.now(),
-    time: new Date().toLocaleTimeString('pt-BR'),
-    msg,
-    type // 'info', 'success', 'error', 'warn', 'data'
-  };
-  console.log(`[LOG:${type}] ${msg}`);
-  sseClients.forEach(client => {
-    client.write(`data: ${JSON.stringify(logEntry)}\n\n`);
-  });
-}
 
 app.get('/api/logs/stream', (req, res) => {
   res.writeHead(200, {
@@ -45,9 +33,10 @@ app.get('/api/logs/stream', (req, res) => {
     'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': '*'
   });
-  sseClients.push(res);
+  logger.addClient(res);
+
   req.on('close', () => {
-    sseClients = sseClients.filter(c => c !== res);
+    logger.removeClient(res);
   });
 });
 
@@ -133,26 +122,12 @@ app.post('/api/audit', async (req, res) => {
 
       try {
         let dataArray = [];
-        
-        if (url.startsWith('http')) {
-            dataArray = await scrapeAmazon(url);
-        } else {
-            emitLog(`📝 Termo de busca: "${url}"`, 'info');
-            dataArray = await scrapeAmazon(url).catch(e => { emitLog(`❌ Erro Amazon: ${e.message}`, 'error'); return []; });
-        }
-        
-        if (stopAudit) break;
+        let pagesNavigated = 0;
 
-        if (dataArray.length === 0) {
-          emitLog(`⚠️ Nenhum resultado encontrado para: ${shortUrl}`, 'warn');
-        } else if (dataArray.pages_navigated) {
-          emitLog(`🗺️ Navegou por ${dataArray.pages_navigated} páginas para capturar esses dados.`, 'info');
-        }
-
-        for (const data of dataArray) {
+        const onResult = async (data) => {
           if (data.asin !== 'UNKNOWN') {
              const category = url.startsWith('http') ? data.title.split(' ')[0] : decodeURIComponent(url).split(' ')[0];
-             await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon');
+             await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon', data.image_url);
              await saveHistory(data);
              
              // Log detalhado do produto capturado
@@ -172,6 +147,21 @@ app.post('/api/audit', async (req, res) => {
              }
              emitLog(`   🎯 ASIN: ${data.asin}`, 'data');
           }
+        };
+
+        if (url.startsWith('http')) {
+            dataArray = await scrapeAmazon(url, onResult);
+        } else {
+            emitLog(`📝 Termo de busca: "${url}"`, 'info');
+            dataArray = await scrapeAmazon(url, onResult).catch(e => { emitLog(`❌ Erro Amazon: ${e.message}`, 'error'); return []; });
+        }
+        
+        if (stopAudit) break;
+
+        if (dataArray.length === 0) {
+          emitLog(`⚠️ Nenhum resultado encontrado para: ${shortUrl}`, 'warn');
+        } else if (dataArray.pages_navigated) {
+          emitLog(`🗺️ Navegou por ${dataArray.pages_navigated} páginas para capturar esses dados.`, 'info');
         }
       } catch (error) {
         emitLog(`❌ Erro ao raspar: ${error.message}`, 'error');
@@ -275,6 +265,7 @@ app.get('/api/history', async (req, res) => {
                 url: row.url,
                 category: row.category,
                 store: row.store || 'Amazon',
+                image_url: row.image_url,
                 is_active: row.is_active,
                 is_deleted: row.is_deleted,
                 history: [],

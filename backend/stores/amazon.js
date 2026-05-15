@@ -3,6 +3,7 @@ const browserManager = require('../browser/browserManager');
 const HumanBehavior = require('../utils/humanBehavior');
 const AntiBotDetector = require('../validators/antiBotDetector');
 const normalizePrice = require('../normalizers/normalizePrice');
+const { emitLog } = require('../logger');
 
 class AmazonStore extends GenericStore {
     constructor() {
@@ -14,14 +15,19 @@ class AmazonStore extends GenericStore {
     }
 
     async extractProductLinks(page) {
-        await page.waitForSelector('div[data-asin]', { timeout: 15000 }).catch(() => {});
+        // Ignora divs onde o data-asin está vazio (propagandas genéricas e banners)
+        await page.waitForSelector('div[data-asin]:not([data-asin=""])', { timeout: 15000 }).catch(() => {});
         
-        return await page.$$eval('div[data-asin]', els => {
+        return await page.$$eval('div[data-asin]:not([data-asin=""])', els => {
             return els.map(e => {
                 const a = e.querySelector('h2 a') || e.querySelector('a.a-link-normal');
                 if (!a) return null;
                 const href = a.getAttribute('href');
-                if (!href || (!href.includes('/dp/') && !href.includes('/gp/'))) return null;
+                
+                // Valida se é um link de produto válido (e não página de ajuda, etc)
+                if (!href || href.includes('/help/') || href.includes('/customer/')) return null;
+                if (!href.includes('/dp/') && !href.includes('/gp/') && !href.includes('/slredirect/')) return null;
+                
                 return {
                     url: href.startsWith('http') ? href : `https://www.amazon.com.br${href}`
                 };
@@ -40,7 +46,7 @@ class AmazonStore extends GenericStore {
     async processProductDetail(url) {
         const page = await browserManager.newPage();
         try {
-            console.log(`[Amazon] Extraindo detalhes: ${url}`);
+            emitLog(`[Amazon] Extraindo detalhes: ${url.length > 80 ? url.substring(0, 80) + '...' : url}`, 'info');
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
             
             // Aguardar preço renderizar (Amazon carrega via JS)
@@ -50,7 +56,7 @@ class AmazonStore extends GenericStore {
 
             const check = await AntiBotDetector.check(page);
             if (check.isBlocked) {
-                console.log(`[Amazon] Bloqueado por anti-bot: ${url}`);
+                emitLog(`[Amazon] Bloqueado por anti-bot: ${url.length > 50 ? url.substring(0, 50) + '...' : url}`, 'error');
                 return null;
             }
 
@@ -60,9 +66,15 @@ class AmazonStore extends GenericStore {
                 '.a-size-large.product-title-word-break'
             ]);
             if (!title) {
-                console.log(`[Amazon] Título não encontrado: ${url}`);
+                emitLog(`[Amazon] Título não encontrado para o link acessado.`, 'warn');
                 return null;
             }
+            
+            // ========== 1.5 IMAGEM ==========
+            let imageUrl = null;
+            try {
+                imageUrl = await page.$eval('#landingImage, #imgBlkFront, .a-dynamic-image', el => el.getAttribute('src') || el.getAttribute('data-old-hires'));
+            } catch (e) {}
 
             // ========== 2. PREÇO À VISTA (principal) ==========
             // Usar $$eval para pegar TODOS os .a-offscreen com preço e filtrar vazios
@@ -73,7 +85,7 @@ class AmazonStore extends GenericStore {
                 );
                 if (allPrices.length > 0) {
                     mainPrice = normalizePrice(allPrices[0]);
-                    console.log(`[Amazon] Preço principal via .a-offscreen: R$ ${mainPrice} (de ${allPrices.length} encontrados)`);
+                    emitLog(`[Amazon] Preço encontrado: R$ ${mainPrice} (entre ${allPrices.length} opções na tela)`, 'data');
                 }
             } catch (e) {}
 
@@ -87,7 +99,7 @@ class AmazonStore extends GenericStore {
             }
 
             if (!mainPrice || mainPrice <= 0) {
-                console.log(`[Amazon] Preço não encontrado para: ${title?.substring(0, 40)}`);
+                emitLog(`[Amazon] Preço não encontrado para: ${title?.substring(0, 40)}`, 'warn');
                 return null;
             }
 
@@ -116,7 +128,7 @@ class AmazonStore extends GenericStore {
                 } catch (e) {}
             }
             if (oldPrice) {
-                console.log(`[Amazon] Preço "De:" encontrado: R$ ${oldPrice}`);
+                emitLog(`[Amazon] Preço "De:" capturado: R$ ${oldPrice}`, 'data');
             }
 
             // ========== 4. PARCELAMENTO ==========
@@ -149,7 +161,7 @@ class AmazonStore extends GenericStore {
                         interest_rate = parseFloat((((installment_total / mainPrice) - 1) * 100).toFixed(2));
                     }
 
-                    console.log(`[Amazon] Parcelamento: ${installments_count}x de R$ ${installment_value.toFixed(2)} = R$ ${installment_total.toFixed(2)} | Juros: ${interest_rate}%`);
+                    emitLog(`[Amazon] Parcelamento: ${installments_count}x de R$ ${installment_value.toFixed(2)} = R$ ${installment_total.toFixed(2)} | Juros: ${interest_rate}%`, 'data');
                 }
             }
 
@@ -159,12 +171,13 @@ class AmazonStore extends GenericStore {
                 real_discount = parseFloat((((oldPrice - mainPrice) / oldPrice) * 100).toFixed(1));
             }
 
-            console.log(`[Amazon] Resultado: ${title.trim().substring(0, 50)}... | À Vista: R$ ${mainPrice} | De: R$ ${oldPrice || 'N/A'} | Desconto: ${real_discount}%`);
+            emitLog(`[Amazon] Resultado: ${title.trim().substring(0, 50)}... | À Vista: R$ ${mainPrice} | De: R$ ${oldPrice || 'N/A'} | Desconto: ${real_discount}%`, 'success');
 
             return {
                 asin: this.extractIdFromUrl(url),
                 title: title.trim(),
                 url: url,
+                image_url: imageUrl,
                 main_price: mainPrice,
                 old_price: oldPrice || mainPrice,
                 main_seller: 'Amazon',
@@ -178,7 +191,7 @@ class AmazonStore extends GenericStore {
             };
 
         } catch (e) {
-            console.error(`[Amazon] Erro na extração (${url}): ${e.message}`);
+            emitLog(`[Amazon] Erro na extração (${url.length > 50 ? url.substring(0, 50) + '...' : url}): ${e.message}`, 'error');
         } finally {
             await page.close();
         }
