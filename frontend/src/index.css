@@ -19,6 +19,8 @@
   --animate-gradient-flow: gradientFlow 15s ease infinite;
   --animate-fade-in: fadeIn 0.8s ease-out;
   --animate-slide-up: slideUp 0.5s ease-out;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-slow: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
   @keyframes gradientFlow {
     0%, 100% { background-position: 0% 50%; }
@@ -32,6 +34,14 @@
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes pulseSlow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
 }
 
 @layer base {
@@ -41,53 +51,70 @@
     --border-light: rgba(0, 0, 0, 0.05);
   }
 
+  * {
+    @apply border-slate-200/60;
+  }
+
   body {
-    @apply font-outfit text-slate-900 bg-white min-h-screen overflow-x-hidden antialiased;
-    background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.05), transparent),
-                radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.05), transparent);
+    @apply font-outfit text-slate-900 bg-white min-h-screen overflow-x-hidden antialiased selection:bg-blue-600/10 selection:text-blue-700;
+    background: 
+      radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.03) 0%, transparent 50%),
+      #ffffff;
   }
 }
 
-@utility btn-premium {
-  @apply relative px-8 py-4 rounded-2xl font-semibold transition-all duration-300 flex items-center gap-2 overflow-hidden;
+@utility glass-card {
+  @apply bg-white/70 backdrop-blur-xl border border-slate-200/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] transition-all duration-500;
 }
 
-@utility btn-premium-primary {
-  @apply btn-premium bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-500/30 active:scale-95;
+@utility glass-card-hover {
+  @apply hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:-translate-y-1 hover:border-blue-200/50;
 }
 
-@utility btn-premium-secondary {
-  @apply btn-premium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 active:scale-95;
+@utility premium-shadow {
+  @apply shadow-[0_1px_2px_rgba(0,0,0,0.05),0_4px_12px_rgba(0,0,0,0.05)];
 }
 
-@utility glass-panel {
-  @apply bg-white/70 backdrop-blur-xl border border-slate-200 shadow-xl shadow-slate-200/50 rounded-3xl transition-all duration-300;
+@utility badge-premium {
+  @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all;
 }
 
-@utility glass-panel-dark {
-  @apply bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl shadow-2xl transition-all duration-300 text-white;
+@utility section-container {
+  @apply max-w-[1400px] mx-auto px-6 lg:px-12;
 }
 
-@utility hero-gradient-text {
-  @apply bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 bg-clip-text text-transparent;
+@utility spot-light {
+  @apply absolute -z-10 w-[500px] h-[500px] bg-blue-500/10 blur-[120px] rounded-full pointer-events-none;
 }
 
-.animate-gradient {
-  background-size: 200% 200%;
-  @apply animate-gradient-flow;
+.hero-gradient-text {
+  @apply bg-gradient-to-r from-slate-900 via-blue-800 to-slate-900 bg-clip-text text-transparent;
 }
 
-/* Scrollbar styling */
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
+  @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+
+/* Grid Background */
+.bg-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(0,0,0,0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0,0,0,0.02) 1px, transparent 1px);
 }
