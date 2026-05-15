@@ -1,14 +1,12 @@
 const amazon = require('./stores/amazon');
-const mercadolivre = require('./stores/mercadolivre');
-const magalu = require('./stores/magalu');
-const casasbahia = require('./stores/casasbahia');
 const browserManager = require('./browser/browserManager');
 const RelevancyValidator = require('./validators/relevancyValidator');
 const { delay } = require('./utils/delay');
+const { getSetting } = require('./database');
 
 class MainScraper {
     constructor() {
-        this.stores = [amazon, mercadolivre, magalu, casasbahia];
+        this.stores = [amazon];
     }
 
     /**
@@ -19,25 +17,37 @@ class MainScraper {
         
         console.log(`[MainScraper] Iniciando busca global por: "${searchTerm}"`);
         
+        // Buscar configuração de relevância
+        const relevancySetting = await getSetting('relevancy_enabled');
+        const isRelevancyEnabled = relevancySetting !== 'false'; // Padrão é true
+
         for (const store of this.stores) {
             try {
                 const storeResults = await store.search(searchTerm);
+                allResults.pages_navigated = (allResults.pages_navigated || 0) + (storeResults.pages_navigated || 0);
                 
-                // Validar relevância dos resultados antes de adicionar
                 for (const item of storeResults) {
-                    const validation = await RelevancyValidator.validate(item.title, searchTerm);
-                    if (validation.isRelevant) {
+                    if (isRelevancyEnabled) {
+                        const validation = await RelevancyValidator.validate(item.title, searchTerm);
+                        if (validation.isRelevant) {
+                            allResults.push({
+                                ...item,
+                                relevancy_score: validation.score
+                            });
+                        } else {
+                            console.log(`[MainScraper] Produto ignorado por irrelevância: ${item.title.substring(0, 50)}...`);
+                        }
+                    } else {
+                        // Filtro desligado: traz tudo
                         allResults.push({
                             ...item,
-                            relevancy_score: validation.score
+                            relevancy_score: 1.0
                         });
-                    } else {
-                        console.log(`[MainScraper] Produto ignorado por irrelevância: ${item.title.substring(0, 50)}...`);
                     }
                 }
                 
                 console.log(`[MainScraper] ${store.name} finalizado. Aguardando pausa de segurança...`);
-                await delay(5000, 10000); // Pausa entre lojas
+                await delay(5000, 10000); 
                 
             } catch (e) {
                 console.error(`[MainScraper] Erro ao processar loja ${store.name}: ${e.message}`);

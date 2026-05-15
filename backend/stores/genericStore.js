@@ -21,7 +21,7 @@ class GenericStore {
             const url = this.getSearchUrl(searchTerm);
             console.log(`[${this.name}] Iniciando busca: ${url}`);
             
-            await page.goto(url, { waitUntil: 'networkidle' });
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
             await HumanBehavior.randomMouseMove(page);
             
             const check = await AntiBotDetector.check(page);
@@ -32,6 +32,8 @@ class GenericStore {
 
             // Limitar para não ser agressivo
             const linksToProcess = productLinks.slice(0, 10);
+            // 1 página de busca + X páginas de detalhes
+            results.pages_navigated = 1 + linksToProcess.length;
 
             for (const link of linksToProcess) {
                 const detailResult = await this.processProductDetail(link.url);
@@ -61,7 +63,7 @@ class GenericStore {
         const page = await browserManager.newPage();
         try {
             console.log(`[${this.name}] Abrindo detalhe: ${url}`);
-            await page.goto(url, { waitUntil: 'networkidle' });
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
             await HumanBehavior.gradualScroll(page);
 
             const check = await AntiBotDetector.check(page);
