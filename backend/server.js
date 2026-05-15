@@ -4,9 +4,10 @@ const cron = require('node-cron');
 const { 
   initDb, saveProduct, saveHistory, getHistory, 
   updateProductStatus, trashProduct, getSetting, 
-  saveSetting, getActiveProducts 
+  saveSetting, getActiveProducts, trashAllProducts,
+  deleteAllTrash
 } = require('./database');
-const { scrapeAmazon, scrapeMercadoLivre, scrapeMagazineLuiza, scrapeCasasBahia } = require('./scraper');
+const { scrapeAmazon } = require('./scraper');
 
 const app = express();
 const PORT = 4000;
@@ -18,6 +19,37 @@ app.use(express.json());
 initDb();
 
 let cronTask = null;
+let stopAudit = false;
+let currentAuditProgress = { current: 0, total: 0, active: false };
+
+// ========== SISTEMA DE LOGS EM TEMPO REAL (SSE) ==========
+let sseClients = [];
+
+function emitLog(msg, type = 'info') {
+  const logEntry = {
+    id: Date.now(),
+    time: new Date().toLocaleTimeString('pt-BR'),
+    msg,
+    type // 'info', 'success', 'error', 'warn', 'data'
+  };
+  console.log(`[LOG:${type}] ${msg}`);
+  sseClients.forEach(client => {
+    client.write(`data: ${JSON.stringify(logEntry)}\n\n`);
+  });
+}
+
+app.get('/api/logs/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*'
+  });
+  sseClients.push(res);
+  req.on('close', () => {
+    sseClients = sseClients.filter(c => c !== res);
+  });
+});
 
 async function runCronJob() {
   console.log('[CRON] Iniciando varredura automatizada...');
@@ -32,12 +64,7 @@ async function runCronJob() {
     for (const prod of activeProducts) {
       console.log(`[CRON] Auditando: ${prod.url}`);
       try {
-        let dataArray = [];
-        if (prod.url.includes('amazon')) dataArray = await scrapeAmazon(prod.url);
-        else if (prod.url.includes('mercadolivre')) dataArray = await scrapeMercadoLivre(prod.url);
-        else if (prod.url.includes('magazineluiza')) dataArray = await scrapeMagazineLuiza(prod.url);
-        else if (prod.url.includes('casasbahia')) dataArray = await scrapeCasasBahia(prod.url);
-        else dataArray = await scrapeAmazon(prod.url);
+        let dataArray = await scrapeAmazon(prod.url);
 
         for (const data of dataArray) {
           if (data.asin !== 'UNKNOWN') {
@@ -83,69 +110,155 @@ app.post('/api/audit', async (req, res) => {
     return res.status(400).json({ error: 'Nenhuma URL fornecida.' });
   }
 
-  // Retorna imediatamente para o frontend não travar (Timeout do Proxy)
-  res.json({ message: 'Pesquisa iniciada em segundo plano. Os resultados aparecerão na lista em instantes.', results: [] });
+  stopAudit = false;
+  currentAuditProgress = { current: 0, total: urls.length, active: true, status: 'Iniciando...' };
+  
+  res.json({ success: true, message: 'Pesquisa iniciada em segundo plano.' });
 
-  // Processa em background
   (async () => {
-    for (const url of urls) {
+    emitLog(`⚙️ Auditoria iniciada — ${urls.length} item(s) na fila`, 'info');
+
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      if (stopAudit) {
+        emitLog('⛔ Pesquisa interrompida pelo usuário.', 'warn');
+        break;
+      }
+      
+      currentAuditProgress.current = i;
+      currentAuditProgress.status = `Processando item ${i + 1} de ${urls.length}...`;
+      
+      const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
+      emitLog(`🔍 [${i+1}/${urls.length}] Acessando: ${shortUrl}`, 'info');
+
       try {
-        console.log(`[BACKGROUND] Iniciando auditoria para: ${url}`);
         let dataArray = [];
         
         if (url.startsWith('http')) {
-            if (url.includes('amazon')) dataArray = await scrapeAmazon(url);
-            else if (url.includes('mercadolivre')) dataArray = await scrapeMercadoLivre(url);
-            else if (url.includes('magazineluiza')) dataArray = await scrapeMagazineLuiza(url);
-            else if (url.includes('casasbahia')) dataArray = await scrapeCasasBahia(url);
-            else {
-              // Tenta encontrar nos novos módulos se a URL bater
-              const { STORE_CONFIGS, scrapeGenericStore } = require('./scraper');
-              for (const [storeName, config] of Object.entries(STORE_CONFIGS)) {
-                if (url.toLowerCase().includes(storeName.toLowerCase().replace('!', ''))) {
-                  dataArray = await scrapeGenericStore(storeName, url);
-                  break;
-                }
-              }
-            }
+            dataArray = await scrapeAmazon(url);
         } else {
-        // Processar em lotes para não estourar a memória (Máximo 3 por vez)
-        const p1 = () => scrapeAmazon(url).catch(e => { console.error('Erro Amazon:', e); return []; });
-        const p2 = () => scrapeMercadoLivre(url).catch(e => { console.error('Erro ML:', e); return []; });
-        const p3 = () => scrapeMagazineLuiza(url).catch(e => { console.error('Erro Magalu:', e); return []; });
-        const p4 = () => scrapeCasasBahia(url).catch(e => { console.error('Erro CB:', e); return []; });
-        
-        const { STORE_CONFIGS, scrapeGenericStore } = require('./scraper');
-        const modularTasks = Object.keys(STORE_CONFIGS).map(name => 
-            () => scrapeGenericStore(name, url).catch(e => { console.error(`Erro ${name}:`, e); return []; })
-        );
-
-        const allTasks = [p1, p2, p3, p4, ...modularTasks];
-        const resultsArray = [];
-        
-        // Executa em lotes de 3
-        for (let i = 0; i < allTasks.length; i += 3) {
-            const batch = allTasks.slice(i, i + 3).map(fn => fn());
-            const batchResults = await Promise.all(batch);
-            resultsArray.push(...batchResults);
-        }
-
-        dataArray = resultsArray.flat();
+            emitLog(`📝 Termo de busca: "${url}"`, 'info');
+            dataArray = await scrapeAmazon(url).catch(e => { emitLog(`❌ Erro Amazon: ${e.message}`, 'error'); return []; });
         }
         
+        if (stopAudit) break;
+
+        if (dataArray.length === 0) {
+          emitLog(`⚠️ Nenhum resultado encontrado para: ${shortUrl}`, 'warn');
+        } else if (dataArray.pages_navigated) {
+          emitLog(`🗺️ Navegou por ${dataArray.pages_navigated} páginas para capturar esses dados.`, 'info');
+        }
+
         for (const data of dataArray) {
           if (data.asin !== 'UNKNOWN') {
              const category = url.startsWith('http') ? data.title.split(' ')[0] : decodeURIComponent(url).split(' ')[0];
              await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon');
              await saveHistory(data);
+             
+             // Log detalhado do produto capturado
+             const titleShort = data.title ? data.title.substring(0, 50) : 'S/Título';
+             emitLog(`✅ ${titleShort}...`, 'success');
+             emitLog(`   💰 À Vista: R$ ${data.main_price?.toFixed(2) || '?'}`, 'data');
+             if (data.old_price && data.old_price > data.main_price) {
+               emitLog(`   🏷️ De: R$ ${data.old_price.toFixed(2)} (-${data.real_discount || 0}% OFF)`, 'data');
+             }
+             if (data.installments_count && data.installments_count > 1) {
+               emitLog(`   📆 Parcelamento: ${data.installments_count}x de R$ ${data.installment_value?.toFixed(2)} = R$ ${data.installment_total?.toFixed(2)}`, 'data');
+               if (data.interest_rate > 0) {
+                 emitLog(`   ⚠️ Juros: +${data.interest_rate}% sobre o à vista`, 'warn');
+               } else {
+                 emitLog(`   ✅ SEM JUROS no parcelamento`, 'success');
+               }
+             }
+             emitLog(`   🎯 ASIN: ${data.asin}`, 'data');
           }
         }
-        console.log(`[BACKGROUND] Auditoria finalizada para: ${url}`);
       } catch (error) {
-        console.error(`[BACKGROUND] Erro ao raspar ${url}:`, error.message);
+        emitLog(`❌ Erro ao raspar: ${error.message}`, 'error');
       }
     }
+    currentAuditProgress.current = urls.length;
+    currentAuditProgress.status = 'Concluído';
+    currentAuditProgress.active = false;
+    emitLog(`🏁 Auditoria finalizada! ${urls.length} item(s) processado(s).`, 'success');
   })();
+});
+
+app.post('/api/audit/active', async (req, res) => {
+  if (currentAuditProgress.active) {
+    return res.status(400).json({ error: 'Já existe uma auditoria em andamento.' });
+  }
+
+  try {
+    const products = await getActiveProducts();
+    const urls = products.map(p => p.url);
+
+    if (urls.length === 0) {
+      return res.json({ success: false, message: 'Nenhum produto ativo na lista para atualizar.' });
+    }
+
+    stopAudit = false;
+    currentAuditProgress = {
+      active: true,
+      current: 0,
+      total: urls.length,
+      status: 'Iniciando atualização da lista...'
+    };
+
+    res.json({ success: true, total: urls.length });
+
+    (async () => {
+      emitLog(`🔄 Atualizando ${urls.length} produto(s) da lista...`, 'info');
+      for (let i = 0; i < urls.length; i++) {
+        if (stopAudit) {
+          emitLog('⛔ Atualização interrompida.', 'warn');
+          break;
+        }
+        const url = urls[i];
+        currentAuditProgress.current = i;
+        currentAuditProgress.status = `Atualizando item ${i + 1} de ${urls.length}...`;
+        
+        const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
+        emitLog(`🔍 [${i+1}/${urls.length}] Atualizando: ${shortUrl}`, 'info');
+
+        try {
+          const dataArray = await scrapeAmazon(url);
+          for (const data of dataArray) {
+            if (data.asin !== 'UNKNOWN') {
+               await saveProduct(data.asin, data.title, data.url, data.category || 'Geral', data.store || 'Amazon');
+               await saveHistory(data);
+               
+               const titleShort = data.title ? data.title.substring(0, 50) : 'S/Título';
+               emitLog(`✅ ${titleShort}... | R$ ${data.main_price?.toFixed(2)}`, 'success');
+               if (data.installments_count > 1) {
+                 emitLog(`   📆 ${data.installments_count}x R$ ${data.installment_value?.toFixed(2)} | Juros: ${data.interest_rate > 0 ? '+' + data.interest_rate + '%' : 'Sem juros'}`, 'data');
+               }
+            }
+          }
+        } catch (error) {
+          emitLog(`❌ Erro: ${error.message}`, 'error');
+        }
+      }
+      currentAuditProgress.current = urls.length;
+      currentAuditProgress.status = 'Concluído';
+      currentAuditProgress.active = false;
+      emitLog(`🏁 Atualização finalizada!`, 'success');
+    })();
+
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar produtos ativos.' });
+  }
+});
+
+app.post('/api/audit/stop', (req, res) => {
+  stopAudit = true;
+  currentAuditProgress.active = false;
+  console.log('[API] Comando de interrupção recebido.');
+  res.json({ success: true, message: 'Interrupção solicitada.' });
+});
+
+app.get('/api/audit/progress', (req, res) => {
+  res.json(currentAuditProgress);
 });
 
 app.get('/api/history', async (req, res) => {
@@ -244,7 +357,6 @@ app.post('/api/settings/cron', async (req, res) => {
 app.post('/api/history/trash-all', async (req, res) => {
   try {
     console.log('[API] Movendo todos os produtos para a lixeira...');
-    const { trashAllProducts } = require('./database');
     await trashAllProducts();
     res.json({ success: true });
   } catch (error) {
@@ -256,7 +368,6 @@ app.post('/api/history/trash-all', async (req, res) => {
 app.delete('/api/history/empty-trash', async (req, res) => {
   try {
     console.log('[API] Esvaziando a lixeira permanentemente...');
-    const { deleteAllTrash } = require('./database');
     await deleteAllTrash();
     res.json({ success: true });
   } catch (error) {

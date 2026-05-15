@@ -42,6 +42,10 @@ function initDb() {
     `);
     db.run(`ALTER TABLE price_history ADD COLUMN page_found INTEGER DEFAULT 1`, (err) => {});
     db.run(`ALTER TABLE price_history ADD COLUMN product_variations TEXT`, (err) => {});
+    db.run(`ALTER TABLE price_history ADD COLUMN installments_count INTEGER`, (err) => {});
+    db.run(`ALTER TABLE price_history ADD COLUMN installment_value REAL`, (err) => {});
+    db.run(`ALTER TABLE price_history ADD COLUMN installment_total REAL`, (err) => {});
+    db.run(`ALTER TABLE price_history ADD COLUMN interest_rate REAL`, (err) => {});
 
     db.run(`
       CREATE TABLE IF NOT EXISTS settings (
@@ -60,7 +64,7 @@ function saveProduct(asin, title, url, category = 'Geral', store = 'Amazon') {
     db.run(
       `INSERT INTO products (asin, title, url, category, is_active, is_deleted, store) 
        VALUES (?, ?, ?, ?, 1, 0, ?)
-       ON CONFLICT(asin) DO UPDATE SET title=excluded.title`,
+       ON CONFLICT(asin) DO UPDATE SET title=excluded.title, is_deleted=0`,
       [asin, title, url, category, store],
       function (err) {
         if (err) reject(err);
@@ -90,8 +94,8 @@ function saveHistory(historyData) {
         const localDate = new Date().toLocaleString('sv-SE').replace(' ', 'T');
         db.run(
           `INSERT INTO price_history 
-          (asin, date, main_price, old_price, main_seller, other_sellers, amazon_discount, real_discount, variation, page_found, product_variations) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (asin, date, main_price, old_price, main_seller, other_sellers, amazon_discount, real_discount, variation, page_found, product_variations, installments_count, installment_value, installment_total, interest_rate) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             historyData.asin,
             localDate,
@@ -103,7 +107,11 @@ function saveHistory(historyData) {
             historyData.real_discount,
             variation,
             historyData.page_found || 1,
-            JSON.stringify(historyData.product_variations || {})
+            JSON.stringify(historyData.product_variations || {}),
+            historyData.installments_count || null,
+            historyData.installment_value || null,
+            historyData.installment_total || null,
+            historyData.interest_rate || 0
           ],
           function (err2) {
             if (err2) reject(err2);

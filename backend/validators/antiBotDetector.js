@@ -12,19 +12,20 @@ class AntiBotDetector {
         const title = (await page.title()).toLowerCase();
         
         const markers = [
-            { text: 'captcha', reason: 'CAPTCHA Detected' },
+            { text: 'desculpe, só precisamos verificar se você não é um robô', reason: 'Amazon Robot Check (PT)' },
+            { text: "sorry, we just need to make sure you're not a robot", reason: 'Amazon Robot Check (EN)' },
+            { text: 'api-services-support@amazon.com', reason: 'Amazon API Support Block' },
             { text: 'verify you are human', reason: 'Human Verification Required' },
-            { text: 'access denied', reason: 'Access Denied (403)' },
             { text: 'robot detected', reason: 'Robot Detected' },
-            { text: 'blocked', reason: 'IP/Session Blocked' },
-            { text: 'cloudflare', reason: 'Cloudflare Challenge' },
-            { text: 'akamai', reason: 'Akamai Block' },
-            { text: 'permissão negada', reason: 'Permission Denied' },
-            { text: 'página não encontrada', reason: '404 or Blocked' }
+            { text: 'ip/session blocked', reason: 'IP/Session Blocked' }
         ];
 
         for (const marker of markers) {
-            if (content.includes(marker.text) || title.includes(marker.text)) {
+            const inContent = content.includes(marker.text);
+            const inTitle = title.includes(marker.text);
+
+            if (inContent || inTitle) {
+                console.log(`[AntiBotDetector] Correspondência encontrada: "${marker.text}" em ${inContent ? 'Conteúdo' : ''} ${inTitle ? 'Título' : ''}`);
                 await this.logBlock(page, marker.reason);
                 return { isBlocked: true, reason: marker.reason };
             }

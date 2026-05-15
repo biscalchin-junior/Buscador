@@ -26,14 +26,24 @@ function App() {
   const [isHeadless, setIsHeadless] = useState(true);
   const [isRelevancyEnabled, setIsRelevancyEnabled] = useState(true);
   const [showLogs, setShowLogs] = useState(false);
+  const [isLogsEnabled, setIsLogsEnabled] = useState(true);
+  const [auditProgress, setAuditProgress] = useState({ current: 0, total: 0, active: false });
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
 
   // Sorting and Seller states
-  const [sortOrder, setSortOrder] = useState(null); // null, 'asc', 'desc'
+  const [sortOrder, setSortOrder] = useState(null);
   const [sellerFilter, setSellerFilter] = useState('');
+
+  // Modal state
+  const [modal, setModal] = useState({ show: false, title: '', message: '', onConfirm: null, type: 'confirm' });
+
+  const showModal = (title, message, onConfirm = null) => {
+    setModal({ show: true, title, message, onConfirm, type: onConfirm ? 'confirm' : 'alert' });
+  };
+  const closeModal = () => setModal({ ...modal, show: false });
 
   const fetchHistory = async () => {
     try {
@@ -48,15 +58,68 @@ function App() {
 
   useEffect(() => {
     fetchSettings();
-
-    // SSE for Live Logs
-    const eventSource = new EventSource(`${API_URL}/logs/stream`);
-    eventSource.onmessage = (e) => {
-      const log = JSON.parse(e.data);
-      setLogs(prev => [log, ...prev].slice(0, 50));
+    fetchHistory();
+    
+    // Verificar se há uma auditoria rodando em background ao iniciar (F5)
+    const checkActiveAudit = async () => {
+      try {
+        const res = await fetch(`${API_URL}/audit/progress`);
+        const data = await res.json();
+        if (data.active) {
+          setIsBackgroundScanning(true);
+          setAuditProgress(data);
+        }
+      } catch (e) {}
     };
-    return () => eventSource.close();
-  }, []);
+    checkActiveAudit();
+
+    // SSE for Live Logs (controlado pelo toggle)
+    let eventSource = null;
+    if (isLogsEnabled) {
+      eventSource = new EventSource(`${API_URL}/logs/stream`);
+      eventSource.onmessage = (e) => {
+        const log = JSON.parse(e.data);
+        setLogs(prev => [log, ...prev].slice(0, 200));
+      };
+    }
+    return () => { if (eventSource) eventSource.close(); };
+  }, [isLogsEnabled]);
+
+  useEffect(() => {
+    fetchHistory();
+    setCurrentPage(1);
+  }, [viewMode]);
+
+  // Polling para progresso real e atualização da lista
+  useEffect(() => {
+    let interval;
+    let listInterval;
+
+    if (isBackgroundScanning) {
+      // Polling de progresso
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_URL}/audit/progress`);
+          const data = await res.json();
+          setAuditProgress(data);
+          if (!data.active) {
+            setIsBackgroundScanning(false);
+            fetchHistory(); // Busca final
+          }
+        } catch (e) {}
+      }, 2000);
+
+      // Polling de lista (Atualização em tempo real conforme sugerido)
+      listInterval = setInterval(fetchHistory, 3000);
+    } else {
+      setAuditProgress({ current: 0, total: 0, active: false, status: '' });
+    }
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(listInterval);
+    };
+  }, [isBackgroundScanning]);
 
   const fetchSettings = async () => {
     try {
@@ -113,14 +176,35 @@ function App() {
   };
 
   const handleStartAudit = async () => {
-    const urls = urlsInput.split('\n').map(u => u.trim()).filter(u => u.length > 0);
-    if (urls.length === 0) {
-        alert('Por favor, insira pelo menos uma URL ou termo de busca.');
-        return;
+    if (!urlsInput.trim()) {
+      showModal(
+        'Atualizar Lista',
+        'Deseja atualizar todos os preços da lista atual agora?',
+        async () => {
+          closeModal();
+          setLoading(true);
+          try {
+            const res = await fetch(`${API_URL}/audit/active`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+              setIsBackgroundScanning(true);
+              setAuditMessage('Atualizando lista...');
+            } else {
+              showModal('Aviso', data.message || 'Erro ao iniciar atualização.');
+            }
+          } catch (err) {
+            showModal('Erro', 'Erro ao conectar com o servidor.');
+          } finally {
+            setLoading(false);
+          }
+        }
+      );
+      return;
     }
 
     setLoading(true);
-    setAuditMessage('Pesquisando... (Isso pode demorar alguns minutos para varrer todas as páginas)');
+    setAuditMessage('Iniciando auditoria...');
+    const urls = urlsInput.split('\n').filter(u => u.trim() !== '');
     
     try {
       const res = await fetch(`${API_URL}/audit`, {
@@ -128,24 +212,27 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls })
       });
+      
       const data = await res.json();
-      setAuditMessage(data.message);
-      setUrlsInput('');
-      setIsBackgroundScanning(true);
-      
-      // Começa a atualizar a lista periodicamente enquanto pesquisa
-      const poll = setInterval(fetchHistory, 10000);
-      setTimeout(() => {
-        clearInterval(poll);
-        setIsBackgroundScanning(false);
-        setAuditMessage('Sincronização concluída.');
-      }, 300000); // Para de poll depois de 5 min
-      
-      fetchHistory(); 
+      if (data.success) {
+        setIsBackgroundScanning(true);
+        setUrlsInput('');
+        setAuditMessage('Pesquisa iniciada...');
+      }
     } catch (err) {
-      setAuditMessage('Erro ao conectar com o servidor.');
+      setAuditMessage('Erro ao iniciar auditoria.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleStopAudit = async () => {
+    try {
+      await fetch(`${API_URL}/audit/stop`, { method: 'POST' });
+      setIsBackgroundScanning(false);
+      setAuditMessage('Interrupção solicitada pelo usuário.');
+    } catch (err) {
+      console.error('Erro ao parar auditoria:', err);
     }
   };
 
@@ -197,19 +284,37 @@ function App() {
   };
 
   const handleTrashAll = async () => {
-    if (!confirm('Deseja mover todos os itens para a lixeira?')) return;
-    try {
-      await fetch(`${API_URL}/history/trash-all`, { method: 'POST' });
-      fetchHistory();
-    } catch (e) {}
+    showModal(
+      'Limpar Lista',
+      'Deseja mover todos os itens para a lixeira?',
+      async () => {
+        closeModal();
+        try {
+          await fetch(`${API_URL}/history/trash-all`, { method: 'POST' });
+          setHistory([]);
+          fetchHistory();
+        } catch (e) {
+          console.error('Erro no Trash All:', e);
+        }
+      }
+    );
   };
 
   const handleEmptyTrash = async () => {
-    if (!confirm('Deseja excluir permanentemente todos os itens da lixeira? Esta ação não pode ser desfeita.')) return;
-    try {
-      await fetch(`${API_URL}/history/empty-trash`, { method: 'DELETE' });
-      fetchHistory();
-    } catch (e) {}
+    showModal(
+      'Esvaziar Lixeira',
+      'Deseja excluir permanentemente todos os itens? Esta ação não pode ser desfeita.',
+      async () => {
+        closeModal();
+        try {
+          await fetch(`${API_URL}/history/empty-trash`, { method: 'DELETE' });
+          setHistory([]);
+          fetchHistory();
+        } catch (e) {
+          console.error('Erro no Empty Trash:', e);
+        }
+      }
+    );
   };
 
   const toggleHeadless = async (enabled) => {
@@ -241,7 +346,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schedule: cronSchedule })
       });
-      alert('Agendamento salvo com sucesso!');
+      showModal('Sucesso', 'Agendamento salvo com sucesso!');
       setShowSettings(false);
     } catch (e) {}
   };
@@ -297,19 +402,9 @@ function App() {
 
   return (
     <div className="container">
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1>Buscador de Preços (Multilojas)</h1>
-          <p>Monitoramento contínuo: Amazon, Mercado Livre, Magazine Luiza e Casas Bahia</p>
-        </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button className="btn btn-secondary" onClick={() => setShowSettings(!showSettings)}>
-            <Settings size={18} /> Agendador
-          </button>
-          <button className="btn btn-secondary" onClick={() => setViewMode(viewMode === 'main' ? 'trash' : 'main')} style={{ color: viewMode === 'trash' ? 'var(--primary-color)' : '' }}>
-            {viewMode === 'main' ? <><Trash2 size={18} /> Lixeira</> : <><ArrowLeft size={18} /> Voltar</>}
-          </button>
-        </div>
+      <header>
+        <h1>Buscador de Preços</h1>
+        <p>Monitoramento Inteligente: Amazon Brasil</p>
       </header>
 
       {showSettings && (
@@ -371,6 +466,21 @@ function App() {
                     * Desligue para que o robô traga TODOS os resultados da busca, sem ignorar nada.
                   </p>
                </div>
+
+               <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
+                  <h4 style={{ color: 'var(--primary-color)', marginBottom: '0.5rem' }}>📝 Coleta de Logs</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <button className={`btn ${isLogsEnabled ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setIsLogsEnabled(true)} style={{ flex: 1 }}>
+                        Logs Ativados
+                      </button>
+                      <button className={`btn ${!isLogsEnabled ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { setIsLogsEnabled(false); setLogs([]); }} style={{ flex: 1 }}>
+                        Logs Desativados
+                      </button>
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                    * Desative para reduzir consumo. Ative para monitorar a raspagem em tempo real.
+                  </p>
+               </div>
             </div>
           </div>
         </div>
@@ -379,83 +489,95 @@ function App() {
       {viewMode === 'main' && (
         <div className="dashboard-panel">
           <div className="input-group">
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>URLs ou Termos de Busca (um por linha)</span>
-              <span className="shortcut-hint">Pressione [Enter] ou [Ctrl+Enter] para pesquisar</span>
+            <label>
+              <span>🎯 URLs ou Termos de Busca</span>
+              <span className="shortcut-hint">Pressione [Ctrl+Enter] para pesquisar</span>
             </label>
             <textarea 
-              placeholder="Cole aqui os links ou digite o nome do produto (ex: Relógio Samsung Galaxy Watch)"
+              placeholder="Ex: Samsung Galaxy S24 ou cole um link da Amazon..."
               value={urlsInput}
               onChange={(e) => setUrlsInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              style={{ minHeight: '150px' }}
             />
           </div>
 
-          <div className="actions">
-            <div className="file-upload-wrapper">
-              <button className="btn btn-secondary">
-                <Upload size={18} /> Importar Lista (.txt/.csv)
+          <div className="actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
+            <div className="file-upload-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button className="btn btn-secondary" onClick={() => document.getElementById('file-import-input').click()}>
+                <Upload size={18} /> Importar Lista
               </button>
-              <input type="file" accept=".txt,.csv" onChange={handleFileUpload} title="Importar arquivo" />
+              <input id="file-import-input" type="file" accept=".txt,.csv" onChange={handleFileUpload} style={{ display: 'none' }} />
+              <button className="btn btn-secondary" onClick={() => setShowSettings(!showSettings)} title="Configurações">
+                <Settings size={18} />
+              </button>
+              <button className="btn btn-secondary" onClick={() => setViewMode(viewMode === 'main' ? 'trash' : 'main')} title={viewMode === 'main' ? 'Lixeira' : 'Voltar'} style={{ color: viewMode === 'trash' ? 'var(--primary-color)' : '' }}>
+                {viewMode === 'main' ? <Trash2 size={18} /> : <ArrowLeft size={18} />}
+              </button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              {auditMessage && <span style={{ color: 'var(--primary-color)', fontSize: '0.9rem', fontWeight: 'bold' }}>{auditMessage}</span>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+              {(auditMessage || auditProgress.status) && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right' }}>
+                  {auditMessage && <span style={{ color: 'var(--primary-color)', fontSize: '0.9rem', fontWeight: '700' }}>{auditMessage}</span>}
+                  {auditProgress.active && <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>{auditProgress.status}</span>}
+                </div>
+              )}
               
-              <button className="btn btn-primary" onClick={handleStartAudit} disabled={loading || isBackgroundScanning} style={{ padding: '1rem 2.5rem', fontSize: '1.2rem', minWidth: '220px' }}>
+              <button className="btn btn-primary" onClick={handleStartAudit} disabled={loading || isBackgroundScanning} style={{ padding: '0.8rem 2.5rem' }}>
                 {(loading || isBackgroundScanning) ? (
-                  <div className="progress-bar-container" style={{ width: '100%' }}>
-                    <div className="progress-bar-fill"></div>
+                  <div className="progress-bar-container" style={{ width: '120px' }}>
+                    <div 
+                        className="progress-bar-fill" 
+                        style={{ 
+                            width: auditProgress.total > 0 ? `${Math.max(5, (auditProgress.current / auditProgress.total) * 100)}%` : '10%' 
+                        }}
+                    ></div>
                   </div>
                 ) : (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Search size={20} /> 
-                    <span>Pesquisar</span>
-                  </span>
+                  <Search size={22} /> 
                 )}
               </button>
+
+              {isBackgroundScanning && (
+                <button className="btn btn-danger" onClick={handleStopAudit} title="Interromper Pesquisa">
+                   <Power size={20} />
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      <div className="dashboard-panel" style={{ padding: '1rem 2rem', flexDirection: 'row', gap: '2rem', alignItems: 'center' }}>
-         <div className="input-group" style={{ flex: 2 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Search size={14}/> Buscar na Lista</label>
-            <input type="text" placeholder="Filtrar por título ou ASIN..." value={searchFilter} onChange={e => { setSearchFilter(e.target.value); setCurrentPage(1); }} style={{ padding: '0.5rem', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border-color)', color: 'white' }} />
+      <div className="dashboard-panel" style={{ padding: '1.5rem 2rem', flexDirection: 'row', gap: '2rem', alignItems: 'center', display: 'flex' }}>
+         <div className="input-group" style={{ flex: 3 }}>
+            <label><Search size={14}/> Buscar na Lista</label>
+            <input type="text" placeholder="Nome do produto ou ASIN..." value={searchFilter} onChange={e => { setSearchFilter(e.target.value); setCurrentPage(1); }} />
          </div>
-         <div className="input-group" style={{ flex: 1 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Filter size={14}/> Categoria</label>
-            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setCurrentPage(1); }} style={{ padding: '0.5rem', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border-color)', color: 'white' }}>
+         <div className="input-group" style={{ flex: 1.5 }}>
+            <label><Filter size={14}/> Categoria</label>
+            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setCurrentPage(1); }}>
                <option value="">Todas</option>
                {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
          </div>
-         <div className="input-group" style={{ flex: 1 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Filter size={14}/> Vendedor</label>
-            <select value={sellerFilter} onChange={e => { setSellerFilter(e.target.value); setCurrentPage(1); }} style={{ padding: '0.5rem', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border-color)', color: 'white' }}>
-               <option value="">Todos</option>
-               {sellers.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-         </div>
-         <div className="input-group" style={{ flex: 1 }}>
-            <label>Itens por Página</label>
-            <select value={itemsPerPage} onChange={e => { setItemsPerPage(e.target.value === 'all' ? 'all' : Number(e.target.value)); setCurrentPage(1); }} style={{ padding: '0.5rem', borderRadius: '4px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border-color)', color: 'white' }}>
+         <div className="input-group" style={{ width: '120px' }}>
+            <label>Pág.</label>
+            <select value={itemsPerPage} onChange={e => { setItemsPerPage(e.target.value === 'all' ? 'all' : Number(e.target.value)); setCurrentPage(1); }}>
                <option value={20}>20</option>
                <option value={40}>40</option>
                <option value={80}>80</option>
-               <option value={100}>100</option>
-               <option value="all">Todos</option>
+               <option value="all">Tudo</option>
             </select>
          </div>
-         <div style={{ alignSelf: 'flex-end' }}>
+         <div style={{ alignSelf: 'flex-end', marginLeft: 'auto' }}>
             {viewMode === 'main' ? (
-              <button className="btn btn-secondary" onClick={handleTrashAll} style={{ color: 'var(--danger-color)', borderColor: 'var(--danger-color)', padding: '0.5rem 1rem' }}>
-                <Trash2 size={16} /> Limpar Lista
+              <button className="btn btn-danger" onClick={handleTrashAll}>
+                <Trash2 size={18} /> Limpar
               </button>
             ) : (
-              <button className="btn btn-primary" onClick={handleEmptyTrash} style={{ background: 'var(--danger-color)', padding: '0.5rem 1rem' }}>
-                <Trash2 size={16} /> Esvaziar Lixeira
+              <button className="btn btn-primary" onClick={handleEmptyTrash}>
+                <Trash2 size={18} /> Esvaziar
               </button>
             )}
          </div>
@@ -475,8 +597,10 @@ function App() {
                   {sortOrder === 'asc' ? <TrendingUp size={14}/> : sortOrder === 'desc' ? <TrendingDown size={14}/> : <Filter size={14} style={{ opacity: 0.3 }}/>}
                 </div>
               </th>
+              <th>Preço À Vista / De</th>
+              <th>Parcelamento</th>
               <th>Status</th>
-              <th>Histórico (Gráfico)</th>
+              <th>Histórico</th>
               <th>Vendedores</th>
               <th>Ações</th>
             </tr>
@@ -484,7 +608,7 @@ function App() {
           <tbody>
             {currentItems.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-dim)' }}>
                   {viewMode === 'trash' ? 'Nenhum item na lixeira.' : 'Nenhum histórico encontrado.'}
                 </td>
               </tr>
@@ -528,7 +652,7 @@ function App() {
                         {latest.product_variations && Object.keys(latest.product_variations).length > 0 && (
                           <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                              {Object.entries(latest.product_variations).map(([k, v]) => (
-                                <span key={k} style={{ background: 'var(--surface-color)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', border: '1px solid var(--border-color)' }}>
+                                <span key={k} style={{ background: 'var(--surface-color)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', border: '1px solid var(--border-light)' }}>
                                   <strong>{k}:</strong> {v}
                                 </span>
                              ))}
@@ -536,18 +660,54 @@ function App() {
                         )}
                       </div>
                     </td>
+
+                    {/* PREÇO À VISTA + "DE:" */}
                     <td>
-                      <span className="price">R$ {latest.main_price ? latest.main_price.toFixed(2) : '0.00'}</span>
-                      {latest.old_price > latest.main_price && <span className="old-price">R$ {latest.old_price.toFixed(2)}</span>}
-                      {latest.real_discount > 0 && <div style={{ fontSize: '0.8rem', color: 'var(--success-color)' }}>-{latest.real_discount}% off</div>}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                        <span style={{ fontSize: '1.5rem', fontWeight: '800', color: 'white', letterSpacing: '-0.02em' }}>
+                          R$ {latest.main_price ? latest.main_price.toFixed(2) : '0.00'}
+                        </span>
+                        {latest.old_price && latest.old_price > latest.main_price && (
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', textDecoration: 'line-through', opacity: 0.6 }}>
+                            De: R$ {latest.old_price.toFixed(2)}
+                          </span>
+                        )}
+                        {latest.real_discount > 0 && (
+                          <span className="badge badge-down" style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem', width: 'fit-content' }}>
+                            -{latest.real_discount}% OFF
+                          </span>
+                        )}
+                      </div>
                     </td>
+
+                    {/* PARCELAMENTO + JUROS */}
+                    <td>
+                      {latest.installments_count && latest.installments_count > 1 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          <span style={{ fontWeight: '700', color: 'var(--text-main)', fontSize: '0.95rem' }}>
+                            {latest.installments_count}x de R$ {latest.installment_value?.toFixed(2)}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                            Total: R$ {latest.installment_total?.toFixed(2)}
+                          </span>
+                          <div className={`badge ${latest.interest_rate >= 1 ? 'badge-up' : 'badge-down'}`} style={{ width: 'fit-content', fontSize: '0.7rem', padding: '0.2rem 0.6rem' }}>
+                            {latest.interest_rate >= 1 ? `+${latest.interest_rate}% de juros` : '✓ SEM JUROS'}
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>—</span>
+                      )}
+                    </td>
+
+                    {/* STATUS */}
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {renderVariationBadge(latest.variation)}
                         {viewMode !== 'trash' && (
-                           <span style={{ fontSize: '0.75rem', color: isActive ? 'var(--success-color)' : 'var(--text-secondary)' }}>
-                             {isActive ? `Agendado (${timeRemaining})` : 'Ignorado'}
-                           </span>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', fontWeight: '600', color: isActive ? 'var(--success)' : 'var(--text-dim)' }}>
+                             <div style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? 'var(--success)' : 'var(--text-dim)', boxShadow: isActive ? '0 0 8px var(--success)' : '' }}></div>
+                             {isActive ? `Ativo (${timeRemaining})` : 'Pausado'}
+                           </div>
                         )}
                       </div>
                     </td>
@@ -572,22 +732,22 @@ function App() {
                       </div>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
                         {viewMode === 'main' ? (
                           <>
-                            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={() => handleManualRefresh(latest.url, item.asin)} title="Atualizar Agora" disabled={isRefreshing}>
-                              {isRefreshing ? <span className="loader" style={{ width: '16px', height: '16px', borderTopColor: 'var(--primary-color)' }}></span> : <RefreshCw size={16} color="var(--primary-color)" />}
+                            <button className="btn btn-secondary" style={{ padding: '0.6rem', borderRadius: '12px' }} onClick={() => handleManualRefresh(latest.url, item.asin)} title="Atualizar Agora" disabled={isRefreshing}>
+                              {isRefreshing ? <RefreshCw size={16} className="spin" /> : <RefreshCw size={16} color="var(--primary-color)" />}
                             </button>
-                            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={() => toggleActive(item.asin, isActive)} title={isActive ? "Inativar Agendamento" : "Ativar Agendamento"}>
-                              {isActive ? <Power size={16} color="var(--success-color)" /> : <PowerOff size={16} color="var(--text-secondary)" />}
+                            <button className="btn btn-secondary" style={{ padding: '0.6rem', borderRadius: '12px' }} onClick={() => toggleActive(item.asin, isActive)} title={isActive ? "Pausar" : "Ativar"}>
+                              {isActive ? <Power size={16} color="var(--success)" /> : <PowerOff size={16} color="var(--text-dim)" />}
                             </button>
-                            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={() => toggleTrash(item.asin, false)} title="Mover para Lixeira">
-                              <Trash2 size={16} color="var(--danger-color)" />
+                            <button className="btn btn-secondary" style={{ padding: '0.6rem', borderRadius: '12px' }} onClick={() => toggleTrash(item.asin, false)} title="Mover para Lixeira">
+                              <Trash2 size={16} color="var(--danger)" />
                             </button>
                           </>
                         ) : (
-                          <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={() => toggleTrash(item.asin, true)} title="Restaurar para a Lista">
-                            <RotateCcw size={16} color="var(--success-color)" />
+                          <button className="btn btn-secondary" style={{ padding: '0.6rem', borderRadius: '12px' }} onClick={() => toggleTrash(item.asin, true)} title="Restaurar">
+                            <RotateCcw size={16} color="var(--success)" />
                           </button>
                         )}
                       </div>
@@ -659,18 +819,66 @@ function App() {
         {showLogs && (
           <div className="logs-content">
             {logs.length === 0 ? (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '1rem' }}>Aguardando atividades do robô...</p>
+              <p style={{ color: 'var(--text-dim)', fontSize: '0.9rem', padding: '1rem' }}>Aguardando atividades do robô...</p>
             ) : (
               logs.map(log => (
-                <div key={log.id} className={`log-line ${log.type}`} style={{ padding: '4px 1rem', fontSize: '0.85rem', borderBottom: '1px solid rgba(255,255,255,0.03)', fontFamily: 'monospace' }}>
-                  <span className="log-time" style={{ color: 'var(--primary-color)', marginRight: '8px' }}>[{log.time}]</span> 
-                  <span style={{ color: log.type === 'error' ? 'var(--danger-color)' : 'var(--text-primary)' }}>{log.msg}</span>
+                <div key={log.id} style={{
+                  padding: '5px 1rem',
+                  fontSize: '0.8rem',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  fontFamily: "'Outfit', monospace",
+                  color: log.type === 'error' ? 'var(--danger)' 
+                       : log.type === 'success' ? 'var(--success)' 
+                       : log.type === 'warn' ? 'var(--warning)' 
+                       : log.type === 'data' ? 'var(--accent-cyan)' 
+                       : 'var(--text-dim)',
+                  background: log.type === 'error' ? 'rgba(239,68,68,0.05)' 
+                            : log.type === 'success' ? 'rgba(16,185,129,0.05)' 
+                            : 'transparent'
+                }}>
+                  <span style={{ color: 'var(--primary-color)', marginRight: '8px', opacity: 0.7 }}>[{log.time}]</span>
+                  {log.msg}
                 </div>
               ))
             )}
           </div>
         )}
       </div>
+
+      {/* MODAL CUSTOMIZADO */}
+      {modal.show && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)'
+        }} onClick={closeModal}>
+          <div style={{
+            background: 'var(--surface-color)', backdropFilter: 'var(--glass-blur)',
+            border: '1px solid var(--border-light)', borderRadius: '20px',
+            padding: '2.5rem', maxWidth: '420px', width: '90%',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
+            animation: 'fadeIn 0.2s ease-out'
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: '700', color: 'white', marginBottom: '1rem' }}>
+              {modal.title}
+            </h3>
+            <p style={{ color: 'var(--text-dim)', fontSize: '1rem', lineHeight: '1.6', marginBottom: '2rem' }}>
+              {modal.message}
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              {modal.type === 'confirm' && (
+                <button className="btn btn-secondary" onClick={closeModal}>Cancelar</button>
+              )}
+              <button className="btn btn-primary" onClick={() => {
+                if (modal.onConfirm) modal.onConfirm();
+                else closeModal();
+              }}>
+                {modal.type === 'confirm' ? 'Confirmar' : 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
