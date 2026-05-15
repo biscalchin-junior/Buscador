@@ -57,6 +57,29 @@ function initDb() {
     
     // Default cron schedule (ex: todo dia as 00:00)
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_schedule', '0 0 * * *')`);
+
+    // Authentication Tables
+    db.run(`
+      CREATE TABLE IF NOT EXISTS users (
+        email TEXT PRIMARY KEY,
+        role TEXT DEFAULT 'user',
+        password TEXT -- Used only for Admin, Google users will leave this null
+      )
+    `);
+    
+    // Create Default Admin
+    db.run(`INSERT OR IGNORE INTO users (email, role, password) VALUES ('admin', 'admin', 'admin123')`);
+    
+    // Mapping table: Which user tracks which product
+    db.run(`
+      CREATE TABLE IF NOT EXISTS user_products (
+        user_email TEXT,
+        asin TEXT,
+        is_active BOOLEAN DEFAULT 1,
+        is_deleted BOOLEAN DEFAULT 0,
+        PRIMARY KEY(user_email, asin)
+      )
+    `);
   });
 }
 

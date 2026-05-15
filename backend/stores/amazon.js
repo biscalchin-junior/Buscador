@@ -171,7 +171,20 @@ class AmazonStore extends GenericStore {
                 real_discount = parseFloat((((oldPrice - mainPrice) / oldPrice) * 100).toFixed(1));
             }
 
-            emitLog(`[Amazon] Resultado: ${title.trim().substring(0, 50)}... | À Vista: R$ ${mainPrice} | De: R$ ${oldPrice || 'N/A'} | Desconto: ${real_discount}%`, 'success');
+            // ========== 6. VENDIDO POR ==========
+            let mainSeller = 'Amazon';
+            const sellerSelectors = [
+                '#merchant-info .offer-display-feature-text-message',
+                '#sellerProfileTriggerId',
+                '#merchant-info a span',
+                '#tabular-buybox .tabular-buybox-text[tabular-attribute-name="Vendido por"] span'
+            ];
+            const foundSeller = await this.tryText(page, sellerSelectors);
+            if (foundSeller) {
+                mainSeller = foundSeller;
+            }
+
+            emitLog(`[Amazon] Resultado: ${title.trim().substring(0, 50)}... | À Vista: R$ ${mainPrice} | Vendido por: ${mainSeller}`, 'success');
 
             return {
                 asin: this.extractIdFromUrl(url),
@@ -180,7 +193,7 @@ class AmazonStore extends GenericStore {
                 image_url: imageUrl,
                 main_price: mainPrice,
                 old_price: oldPrice || mainPrice,
-                main_seller: 'Amazon',
+                main_seller: mainSeller,
                 amazon_discount: real_discount,
                 real_discount: real_discount,
                 installments_count: installments_count,
