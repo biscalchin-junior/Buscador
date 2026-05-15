@@ -10,6 +10,10 @@ const {
 const { scrapeAmazon } = require('./scraper');
 const logger = require('./logger');
 const emitLog = logger.emitLog;
+const {
+  initAuthDb, generateToken, authMiddleware, superadminMiddleware,
+  findUserByEmail, createUser, saveGuestSearch, getGuestSearches, getAllUsers, bcrypt
+} = require('./auth');
 
 const app = express();
 const PORT = 4000;
@@ -19,6 +23,7 @@ app.use(express.json());
 
 // Inicia o banco de dados
 initDb();
+initAuthDb();
 
 let cronTask = null;
 let stopAudit = false;
@@ -455,6 +460,134 @@ app.get('/api/settings/relevancy', async (req, res) => {
     res.json({ enabled: val !== 'false' });
   } catch (e) {
     res.status(500).json({ error: 'Erro ao buscar config.' });
+  }
+});
+
+// ========== AUTH ROUTES ==========
+
+// POST /api/auth/register
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, birthDate } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+    if (password.length < 6) return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres.' });
+    const existing = await findUserByEmail(email);
+    if (existing) return res.status(409).json({ error: 'E-mail já cadastrado.' });
+    const hash = await bcrypt.hash(password, 12);
+    const user = await createUser(email, hash, birthDate);
+    const token = generateToken(user);
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro interno ao registrar.' });
+  }
+});
+
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+    const user = await findUserByEmail(email);
+    if (!user) return res.status(401).json({ error: 'Credenciais inválidas.' });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Credenciais inválidas.' });
+    const token = generateToken(user);
+    res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro interno ao autenticar.' });
+  }
+});
+
+// GET /api/auth/me  (valida token e retorna perfil)
+app.get('/api/auth/me', authMiddleware, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// POST /api/public/search  (pesquisa pública — guest ou logado)
+app.post('/api/public/search', async (req, res) => {
+  const { term, userLabel, userId } = req.body;
+  if (!term || !term.trim()) return res.status(400).json({ error: 'Termo de pesquisa obrigatório.' });
+
+  try {
+    // Busca histórico existente no banco primeiro
+    const history = await getHistory(false);
+    const lowerTerm = term.toLowerCase();
+    const matched = history.filter(p =>
+      p.title?.toLowerCase().includes(lowerTerm) ||
+      p.asin?.toLowerCase().includes(lowerTerm)
+    );
+
+    // Se não achou nada no banco, raspar na Amazon em tempo real
+    if (matched.length === 0) {
+      console.log(`[Guest Search] Item "${term}" não encontrado localmente. Iniciando scrape na Amazon...`);
+      try {
+        const scrapedData = await scrapeAmazon(term);
+        if (scrapedData && scrapedData.length > 0) {
+          for (const data of scrapedData) {
+            if (data.asin && data.asin !== 'UNKNOWN') {
+               const category = data.title ? data.title.split(' ')[0] : 'Geral';
+               await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon', data.image_url);
+               await saveHistory(data);
+               // Adapta os dados raspados para o formato que o frontend espera no histórico
+               matched.push({
+                 title: data.title,
+                 url: data.url,
+                 category: category,
+                 image_url: data.image_url,
+                 store: data.store || 'Amazon',
+                 asin: data.asin,
+                 main_price: data.main_price,
+                 old_price: data.old_price,
+                 history: [data] // mock do historico inicial
+               });
+            }
+          }
+        }
+      } catch (scrapeErr) {
+        console.error(`[Guest Search] Erro ao raspar Amazon:`, scrapeErr.message);
+      }
+    }
+
+    // Identifica o item mais barato
+    let cheapest = null;
+    if (matched.length > 0) {
+      cheapest = matched.reduce((min, p) => (p.main_price < (min?.main_price || Infinity) ? p : min), null);
+    }
+
+    // Salvar pesquisa silenciosamente (Inteligência da Plataforma)
+    await saveGuestSearch({
+      term: term.trim(),
+      userLabel: userLabel || 'Guest User',
+      userId: userId || null,
+      itemTitle: cheapest?.title || null,
+      itemAsin: cheapest?.asin || null,
+      itemPrice: cheapest?.main_price || null,
+      itemStore: cheapest?.store || null,
+    }).catch(() => {});
+
+    res.json({ results: matched, cheapest });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao processar pesquisa.' });
+  }
+});
+
+// GET /api/admin/guest-searches  (superadmin apenas)
+app.get('/api/admin/guest-searches', superadminMiddleware, async (req, res) => {
+  try {
+    const searches = await getGuestSearches();
+    res.json(searches);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar pesquisas.' });
+  }
+});
+
+// GET /api/admin/users  (superadmin apenas)
+app.get('/api/admin/users', superadminMiddleware, async (req, res) => {
+  try {
+    const users = await getAllUsers();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar usuários.' });
   }
 });
 

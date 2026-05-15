@@ -13,16 +13,29 @@ function initDb() {
         url TEXT,
         category TEXT,
         is_active BOOLEAN DEFAULT 1,
-        is_deleted BOOLEAN DEFAULT 0
+        is_deleted BOOLEAN DEFAULT 0,
+        store TEXT DEFAULT 'Amazon',
+        image_url TEXT,
+        search_count INTEGER DEFAULT 0,
+        relevance_score REAL DEFAULT 0,
+        canonical_id TEXT,
+        last_checked DATETIME,
+        check_interval_minutes INTEGER DEFAULT 360
       )
     `);
 
     // Alter table to add new columns if they don't exist (SQLite doesn't support IF NOT EXISTS in ALTER)
-    db.run(`ALTER TABLE products ADD COLUMN category TEXT`, (err) => {});
-    db.run(`ALTER TABLE products ADD COLUMN is_active BOOLEAN DEFAULT 1`, (err) => {});
-    db.run(`ALTER TABLE products ADD COLUMN is_deleted BOOLEAN DEFAULT 0`, (err) => {});
-    db.run(`ALTER TABLE products ADD COLUMN store TEXT DEFAULT 'Amazon'`, (err) => {});
-    db.run(`ALTER TABLE products ADD COLUMN image_url TEXT`, (err) => {});
+    db.run(`ALTER TABLE products ADD COLUMN category TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN is_active BOOLEAN DEFAULT 1`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN is_deleted BOOLEAN DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN store TEXT DEFAULT 'Amazon'`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN image_url TEXT`, () => {});
+    // Intelligence columns (future AI-ready)
+    db.run(`ALTER TABLE products ADD COLUMN search_count INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN relevance_score REAL DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN canonical_id TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN last_checked DATETIME`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN check_interval_minutes INTEGER DEFAULT 360`, () => {});
 
     db.run(`
       CREATE TABLE IF NOT EXISTS price_history (
@@ -57,18 +70,6 @@ function initDb() {
     
     // Default cron schedule (ex: todo dia as 00:00)
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_schedule', '0 0 * * *')`);
-
-    // Authentication Tables
-    db.run(`
-      CREATE TABLE IF NOT EXISTS users (
-        email TEXT PRIMARY KEY,
-        role TEXT DEFAULT 'user',
-        password TEXT -- Used only for Admin, Google users will leave this null
-      )
-    `);
-    
-    // Create Default Admin
-    db.run(`INSERT OR IGNORE INTO users (email, role, password) VALUES ('admin', 'admin', 'admin123')`);
     
     // Mapping table: Which user tracks which product
     db.run(`
@@ -86,17 +87,30 @@ function initDb() {
 function saveProduct(asin, title, url, category = 'Geral', store = 'Amazon', image_url = null) {
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT INTO products (asin, title, url, category, is_active, is_deleted, store, image_url) 
-       VALUES (?, ?, ?, ?, 1, 0, ?, ?)
-       ON CONFLICT(asin) DO UPDATE SET title=excluded.title, is_deleted=0, image_url=COALESCE(excluded.image_url, products.image_url)`,
+      `INSERT INTO products (asin, title, url, category, is_active, is_deleted, store, image_url, search_count, last_checked) 
+       VALUES (?, ?, ?, ?, 1, 0, ?, ?, 1, CURRENT_TIMESTAMP)
+       ON CONFLICT(asin) DO UPDATE SET 
+         title=excluded.title, 
+         is_deleted=0, 
+         image_url=COALESCE(excluded.image_url, products.image_url),
+         search_count=products.search_count + 1,
+         last_checked=CURRENT_TIMESTAMP,
+         check_interval_minutes=CASE 
+           WHEN products.search_count + 1 > 50 THEN 30
+           WHEN products.search_count + 1 > 10 THEN 120
+           ELSE 360
+         END,
+         relevance_score=ROUND(
+           (products.search_count + 1) * 1.0 +
+           CASE WHEN products.last_checked > datetime('now', '-1 hour') THEN 5 ELSE 0 END,
+           2
+         )`,
       [asin, title, url, category, store, image_url],
-      function (err) {
-        if (err) reject(err);
-        else resolve();
-      }
+      function(err) { if (err) reject(err); else resolve(); }
     );
   });
 }
+
 
 function saveHistory(historyData) {
   return new Promise((resolve, reject) => {
