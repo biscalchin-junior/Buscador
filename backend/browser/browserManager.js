@@ -8,18 +8,23 @@ chromium.use(stealth);
 class BrowserManager {
     constructor() {
         this.context = null;
-        // Caminho absoluto baseado na localização deste arquivo
         this.browserPath = path.join(__dirname, '..', 'browser_profile');
+        this.pagesCreated = 0;
+        this.RESTART_THRESHOLD = 50; // Reiniciar contexto a cada 50 páginas
     }
 
     /**
      * Inicializa o navegador com contexto persistente
      */
     async initialize() {
+        if (this.context && this.pagesCreated >= this.RESTART_THRESHOLD) {
+            console.log('[BrowserManager] Threshold de memória atingido. Reiniciando navegador...');
+            await this.close();
+        }
+
         if (this.context) {
-            // Verifica se o contexto ainda é válido (não foi fechado manualmente ou caiu)
             try {
-                await this.context.pages(); // Se falhar, o contexto está fechado
+                await this.context.pages(); 
             } catch (e) {
                 console.log('[BrowserManager] Contexto antigo fechado, reiniciando...');
                 this.context = null;
@@ -28,56 +33,63 @@ class BrowserManager {
 
         if (this.context) return this.context;
 
-        // Buscar configuração de headless do banco
         const headlessSetting = await getSetting('is_headless');
-        const isHeadless = headlessSetting !== 'false'; // Padrão é true
+        const isHeadless = headlessSetting !== 'false'; 
 
-        console.log(`[BrowserManager] Iniciando contexto persistente (Headless: ${isHeadless}) em: ${this.browserPath}`);
+        console.log(`[BrowserManager] Iniciando contexto persistente (Headless: ${isHeadless})`);
 
         this.context = await chromium.launchPersistentContext(this.browserPath, {
             headless: isHeadless,
-            viewport: { width: 1920, height: 1080 },
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            viewport: { width: 1280, height: 720 }, // Viewport menor economiza memória
             args: [
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--window-size=1920,1080'
+                '--disable-dev-shm-usage', // Importante para ambientes Docker/Linux
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu'
             ]
         });
 
+        this.pagesCreated = 0; // Reset contador
+
         this.context.on('close', () => {
-            console.log('[BrowserManager] Contexto fechado.');
             this.context = null;
         });
 
-        // Configurar timeouts globais
         this.context.setDefaultTimeout(60000);
-        this.context.setDefaultNavigationTimeout(60000);
-
         return this.context;
     }
 
     /**
-     * Cria uma nova página (aba)
+     * Cria uma nova página (aba) otimizada
      */
     async newPage() {
         const context = await this.initialize();
         const page = await context.newPage();
+        this.pagesCreated++;
 
-        // Bloquear recursos desnecessários para economizar banda/processamento (opcional, mas cuidado com anti-bot)
-        // await page.route('**/*.{png,jpg,jpeg,gif,svg}', route => route.abort()); 
+        // BLOQUEIO DE RECURSOS PESADOS (Economiza RAM e CPU)
+        await page.route('**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,ttf,otf}', (route) => {
+            const type = route.request().resourceType();
+            // Mantemos apenas o necessário para o DOM renderizar o básico
+            if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+                return route.abort();
+            }
+            route.continue();
+        });
 
         return page;
     }
 
     /**
-     * Fecha o contexto (apenas se necessário, ideal manter aberto)
+     * Fecha o contexto
      */
     async close() {
         if (this.context) {
             await this.context.close();
             this.context = null;
+            this.pagesCreated = 0;
         }
     }
 }
