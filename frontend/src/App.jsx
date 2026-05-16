@@ -15,9 +15,9 @@ const Badge = ({ children, color = 'blue' }) => (
 );
 
 const renderVariationBadge = (v) => {
-  if (!v || v === 0) return <span className="flex items-center gap-1 text-xs font-bold text-slate-400"><Minus size={13}/> Estável</span>;
-  if (v > 0) return <span className="flex items-center gap-1 text-xs font-bold text-orange-500"><TrendingUp size={13}/> +{Number(v).toFixed(1)}%</span>;
-  return <span className="flex items-center gap-1 text-xs font-bold text-emerald-500"><TrendingDown size={13}/> {Number(v).toFixed(1)}%</span>;
+  if (!v || v === 0) return <span className="flex items-center gap-1 text-xs font-bold text-slate-400"><Minus size={13} /> Estável</span>;
+  if (v > 0) return <span className="flex items-center gap-1 text-xs font-bold text-orange-500"><TrendingUp size={13} /> +{Number(v).toFixed(1)}%</span>;
+  return <span className="flex items-center gap-1 text-xs font-bold text-emerald-500"><TrendingDown size={13} /> {Number(v).toFixed(1)}%</span>;
 };
 
 // ── Navbar ────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ const Navbar = ({ onAuthOpen }) => {
     <nav className="fixed top-0 left-0 right-0 z-[100] bg-white/70 backdrop-blur-2xl border-b border-slate-200/50">
       <div className="section-container h-16 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-slate-950 rounded-lg flex items-center justify-center"><Zap className="text-white fill-white" size={16}/></div>
+          <div className="w-8 h-8 bg-slate-950 rounded-lg flex items-center justify-center"><Zap className="text-white fill-white" size={16} /></div>
           <span className="text-lg font-bold tracking-tight text-slate-950">Buscador<span className="text-blue-600">.ai</span></span>
           {isSuperAdmin && <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-700 text-[9px] font-black rounded-full uppercase tracking-widest">Superadmin</span>}
         </div>
@@ -40,7 +40,7 @@ const Navbar = ({ onAuthOpen }) => {
           ) : (
             <div className="flex items-center gap-3 bg-slate-50 pl-4 pr-1 py-1 rounded-full border border-slate-200">
               <span className="text-xs font-bold text-slate-600">{user.email}</span>
-              <button onClick={logout} className="p-2 bg-white rounded-full shadow-sm hover:text-red-500 transition-colors"><PowerOff size={14}/></button>
+              <button onClick={logout} className="p-2 bg-white rounded-full shadow-sm hover:text-red-500 transition-colors"><PowerOff size={14} /></button>
             </div>
           )}
         </div>
@@ -57,12 +57,12 @@ const Hero = ({ urlsInput, setUrlsInput, onSearch, loading, searchResult }) => {
 
   return (
     <section className="relative pt-32 pb-20 bg-grid overflow-hidden">
-      <div className="spot-light top-0 left-1/4 animate-pulse-slow"/>
-      <div className="spot-light bottom-0 right-1/4 bg-emerald-500/5"/>
+      <div className="spot-light top-0 left-1/4 animate-pulse-slow" />
+      <div className="spot-light bottom-0 right-1/4 bg-emerald-500/5" />
       <div className="section-container relative z-10 text-center">
         <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="text-5xl md:text-7xl font-black text-slate-950 mb-6 leading-[1.1] tracking-[-0.04em]">
-          Monitoramento <br/>
+          Monitoramento <br />
           <span className="hero-gradient-text italic">Autônomo de Preços.</span>
         </motion.h1>
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
@@ -73,14 +73,14 @@ const Hero = ({ urlsInput, setUrlsInput, onSearch, loading, searchResult }) => {
         <div className="max-w-2xl mx-auto">
           <div className="glass-card p-2 flex items-center shadow-2xl mb-4">
             <div className="flex-1 flex items-center px-5">
-              <Command size={17} className="text-slate-400 mr-3"/>
+              <Command size={17} className="text-slate-400 mr-3" />
               <input type="text" placeholder="Ex: Samsung Galaxy S24 ou cole um link..." value={urlsInput}
                 onChange={e => setUrlsInput(e.target.value)} onKeyDown={handleKey}
-                className="bg-transparent border-none text-slate-950 w-full focus:ring-0 text-sm font-medium outline-none"/>
+                className="bg-transparent border-none text-slate-950 w-full focus:ring-0 text-sm font-medium outline-none" />
             </div>
             <button onClick={onSearch}
               className="px-7 py-3.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-black rounded-2xl transition-all shadow-xl shadow-blue-500/20 active:scale-95 flex items-center gap-2">
-              {loading ? <RefreshCw className="animate-spin" size={16}/> : <Sparkles size={16}/>} Buscar
+              {loading ? <RefreshCw className="animate-spin" size={16} /> : <Sparkles size={16} />} Buscar
             </button>
           </div>
 
@@ -88,7 +88,7 @@ const Hero = ({ urlsInput, setUrlsInput, onSearch, loading, searchResult }) => {
           {isGuest && searchResult !== null && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
               className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4 text-left mt-2">
-              <Info size={16} className="text-blue-500 flex-shrink-0 mt-0.5"/>
+              <Info size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-blue-700 font-medium leading-relaxed">
                 <strong>Faça login para desbloquear:</strong> salvar pesquisas, criar alertas automáticos de preço e acompanhar monitoramentos personalizados.
               </p>
@@ -105,10 +105,10 @@ const MetricsGrid = () => (
   <section className="py-20 border-y border-slate-100 bg-white">
     <div className="section-container grid grid-cols-2 md:grid-cols-4 gap-10">
       {[
-        { icon: <Clock/>, label: 'Latência', value: '< 800ms' },
-        { icon: <Database/>, label: 'Dados/Dia', value: '500k+' },
-        { icon: <Shield/>, label: 'Segurança', value: 'AES-256' },
-        { icon: <Cpu/>, label: 'Engine', value: 'V8 Pro' },
+        { icon: <Clock />, label: 'Latência', value: '< 800ms' },
+        { icon: <Database />, label: 'Dados/Dia', value: '500k+' },
+        { icon: <Shield />, label: 'Segurança', value: 'AES-256' },
+        { icon: <Cpu />, label: 'Engine', value: 'V8 Pro' },
       ].map((m, i) => (
         <div key={i} className="text-center">
           <div className="text-blue-600 mb-3 inline-block">{m.icon}</div>
@@ -141,7 +141,7 @@ const PublicResults = ({ results, onAuthOpen }) => {
       {cheapest && (
         <div className="glass-card p-6 flex flex-col md:flex-row items-start gap-6 border-emerald-100 mb-6">
           <div className="w-20 h-20 bg-white border border-slate-100 rounded-2xl p-2 flex-shrink-0">
-            <img src={cheapest.image_url} alt="" className="w-full h-full object-contain"/>
+            <img src={cheapest.image_url} alt="" className="w-full h-full object-contain" />
           </div>
           <div className="flex-1">
             <a href={cheapest.url} target="_blank" rel="noreferrer" className="text-base font-black text-slate-900 hover:text-blue-600 transition-colors line-clamp-2">{cheapest.title}</a>
@@ -157,7 +157,7 @@ const PublicResults = ({ results, onAuthOpen }) => {
           <div className="w-32 h-16 flex-shrink-0">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={(cheapest.history || []).map(h => ({ price: h.main_price }))}>
-                <Line type="monotone" dataKey="price" stroke="#10b981" strokeWidth={2} dot={false}/>
+                <Line type="monotone" dataKey="price" stroke="#10b981" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -188,24 +188,33 @@ const Dashboard = ({ history, loading, onSearch }) => {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch(`${API_URL}/history?trash=${viewMode === 'trash'}`);
+      const res = await fetch(`${API_URL}/history?trash=${viewMode === 'trash'}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       return await res.json();
     } catch { return []; }
   };
 
   const toggleTrash = async (asin, isRestore) => {
     try {
-      await fetch(`${API_URL}/product/${asin}/${isRestore ? 'restore' : 'trash'}`, { method: 'PUT' });
+      await fetch(`${API_URL}/product/${asin}/${isRestore ? 'restore' : 'trash'}`, { 
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      });
       onSearch();
-    } catch {}
+    } catch { }
   };
 
   const handleRefresh = async (url, asin) => {
     setRefreshingAsin(asin);
     try {
-      await fetch(`${API_URL}/audit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls: [url] }) });
+      await fetch(`${API_URL}/audit`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, 
+        body: JSON.stringify({ urls: [url] }) 
+      });
       onSearch();
-    } catch {} finally { setRefreshingAsin(null); }
+    } catch { } finally { setRefreshingAsin(null); }
   };
 
   const filtered = useMemo(() => (history || []).filter(item => {
@@ -219,19 +228,19 @@ const Dashboard = ({ history, loading, onSearch }) => {
       {/* Toolbar */}
       <div className="glass-card p-4 flex flex-wrap items-center gap-4 sticky top-20 z-40 mb-6">
         <div className="flex-1 flex items-center gap-3 bg-slate-100/50 rounded-2xl px-5 py-2.5 border border-slate-100">
-          <Search size={15} className="text-slate-400"/>
+          <Search size={15} className="text-slate-400" />
           <input type="text" placeholder="Filtrar produtos..." value={searchFilter} onChange={e => setSearchFilter(e.target.value)}
-            className="bg-transparent border-none text-sm font-bold text-slate-900 focus:ring-0 w-full outline-none"/>
+            className="bg-transparent border-none text-sm font-bold text-slate-900 focus:ring-0 w-full outline-none" />
         </div>
         <div className="flex items-center gap-2">
           <select className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-600 focus:ring-blue-500 outline-none" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="">Todos</option>
             <option value="active">Ativos</option>
           </select>
-          <button className="p-2.5 bg-slate-950 text-white rounded-xl hover:bg-slate-800"><Filter size={15}/></button>
+          <button className="p-2.5 bg-slate-950 text-white rounded-xl hover:bg-slate-800"><Filter size={15} /></button>
           <button onClick={() => setViewMode(v => v === 'main' ? 'trash' : 'main')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black transition-all ${viewMode === 'trash' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-slate-100 text-slate-600'}`}>
-            {viewMode === 'trash' ? <><ArrowLeft size={13}/> Voltar</> : <><Trash2 size={13}/> Lixeira</>}
+            {viewMode === 'trash' ? <><ArrowLeft size={13} /> Voltar</> : <><Trash2 size={13} /> Lixeira</>}
           </button>
         </div>
       </div>
@@ -262,7 +271,7 @@ const Dashboard = ({ history, loading, onSearch }) => {
                     <td className="p-5">
                       <div className="flex items-center gap-3">
                         <div className="w-11 h-11 rounded-xl border border-slate-100 bg-white p-1 flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
-                          <img src={item.image_url} alt="" className="w-full h-full object-contain"/>
+                          <img src={item.image_url} alt="" className="w-full h-full object-contain" />
                         </div>
                         <div>
                           <a href={latest.url} target="_blank" rel="noreferrer" className="text-sm font-black text-slate-900 hover:text-blue-600 transition-colors line-clamp-1">{latest.title}</a>
@@ -282,7 +291,7 @@ const Dashboard = ({ history, loading, onSearch }) => {
                       <div className="w-28 h-9">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={(item.history || []).map(h => ({ price: h.main_price }))}>
-                            <Line type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={2} dot={false}/>
+                            <Line type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={2} dot={false} />
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
@@ -290,10 +299,10 @@ const Dashboard = ({ history, loading, onSearch }) => {
                     <td className="p-5 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => handleRefresh(latest.url, item.asin)} className="p-2 rounded-xl bg-white border border-slate-200 hover:border-blue-500 hover:text-blue-600 transition-all">
-                          <RefreshCw size={13} className={refreshingAsin === item.asin ? 'animate-spin' : ''}/>
+                          <RefreshCw size={13} className={refreshingAsin === item.asin ? 'animate-spin' : ''} />
                         </button>
                         <button onClick={() => toggleTrash(item.asin, viewMode === 'trash')} className="p-2 rounded-xl bg-white border border-slate-200 hover:border-red-500 hover:text-red-600 transition-all">
-                          <Trash2 size={13}/>
+                          <Trash2 size={13} />
                         </button>
                       </div>
                     </td>
@@ -316,7 +325,7 @@ const Footer = () => (
   <footer className="py-16 border-t border-slate-100 bg-white">
     <div className="section-container flex flex-col md:flex-row justify-between items-center gap-6">
       <div className="flex items-center gap-2.5">
-        <div className="w-7 h-7 bg-slate-950 rounded-lg flex items-center justify-center"><Zap className="text-white fill-white" size={14}/></div>
+        <div className="w-7 h-7 bg-slate-950 rounded-lg flex items-center justify-center"><Zap className="text-white fill-white" size={14} /></div>
         <span className="font-bold text-slate-950">Buscador<span className="text-blue-600">.ai</span></span>
       </div>
       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">© 2026 Buscador.ai — Built for scale</p>
@@ -341,9 +350,12 @@ function InnerApp() {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch(`${API_URL}/history?trash=false`);
+      if (!token) return;
+      const res = await fetch(`${API_URL}/history?trash=false`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setHistory(await res.json());
-    } catch {}
+    } catch { }
   };
 
   useEffect(() => { if (!isGuest) fetchHistory(); }, [isGuest]);
@@ -356,14 +368,17 @@ function InnerApp() {
           const res = await fetch(`${API_URL}/audit/progress`);
           const d = await res.json();
           if (!d.active) { setIsBackgroundScanning(false); fetchHistory(); }
-        } catch {}
+        } catch { }
       }, 3000);
     }
     return () => clearInterval(iv);
   }, [isBackgroundScanning]);
 
   const handleSearch = async () => {
-    if (!urlsInput.trim()) return;
+    if (!urlsInput.trim()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     if (isGuest) {
@@ -375,52 +390,45 @@ function InnerApp() {
         });
         const data = await res.json();
         setPublicResults(data.results || []);
-      } catch {} finally { setLoading(false); }
+      } catch { } finally { setLoading(false); }
     } else {
       // Usuário logado — inicia auditoria real
-      if (!urlsInput.trim() && history.length > 0) {
-        setModal({ show: true, title: 'Atualização Global', message: 'Deseja re-auditar todos os produtos agora?', onConfirm: async () => {
-          try { await fetch(`${API_URL}/audit/active`, { method: 'POST' }); setIsBackgroundScanning(true); } catch {}
-        }});
-        setLoading(false);
-        return;
-      }
       const urls = urlsInput.split('\n').filter(u => u.trim());
       try {
         const res = await fetch(`${API_URL}/audit`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ urls })
         });
         if (res.ok) { setIsBackgroundScanning(true); setUrlsInput(''); }
-      } catch {} finally { setLoading(false); }
+      } catch { } finally { setLoading(false); }
     }
   };
 
   return (
     <div className="min-h-screen bg-white">
-      <Navbar onAuthOpen={() => setAuthOpen(true)}/>
+      <Navbar onAuthOpen={() => setAuthOpen(true)} />
       <main>
-        <Hero urlsInput={urlsInput} setUrlsInput={setUrlsInput} onSearch={handleSearch} loading={loading} searchResult={publicResults}/>
-        <MetricsGrid/>
+        <Hero urlsInput={urlsInput} setUrlsInput={setUrlsInput} onSearch={handleSearch} loading={loading} searchResult={publicResults} />
+        <MetricsGrid />
 
         {/* Guest: mostra resultados públicos */}
         {isGuest && publicResults !== null && (
-          <PublicResults results={publicResults} onAuthOpen={() => setAuthOpen(true)}/>
+          <PublicResults results={publicResults} onAuthOpen={() => setAuthOpen(true)} />
         )}
 
         {/* Logado: dashboard completo */}
         {!isGuest && (
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}>
-            <Dashboard history={history} loading={loading} onSearch={fetchHistory}/>
+            <Dashboard history={history} loading={loading} onSearch={fetchHistory} />
           </motion.div>
         )}
 
         {/* Superadmin: painel extra */}
-        {isSuperAdmin && <SuperAdminPanel/>}
+        {isSuperAdmin && <SuperAdminPanel />}
       </main>
-      <Footer/>
+      <Footer />
 
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)}/>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
 
       {/* Confirm modal */}
       <AnimatePresence>
@@ -446,7 +454,7 @@ function InnerApp() {
 export default function App() {
   return (
     <AuthProvider>
-      <InnerApp/>
+      <InnerApp />
     </AuthProvider>
   );
 }

@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const { 
-  initDb, saveProduct, saveHistory, getHistory, 
+  initDb, saveProduct, saveHistory, getHistory, linkProductToUser,
   updateProductStatus, trashProduct, getSetting, 
   saveSetting, getActiveProducts, trashAllProducts,
   deleteAllTrash
@@ -97,7 +97,7 @@ async function setupCron() {
 // Inicia o Cron Job na inicialização
 setTimeout(setupCron, 2000); // Aguarda db inicializar
 
-app.post('/api/audit', async (req, res) => {
+app.post('/api/audit', authMiddleware, async (req, res) => {
   const { urls } = req.body; 
   
   if (!urls || !Array.isArray(urls) || urls.length === 0) {
@@ -134,6 +134,7 @@ app.post('/api/audit', async (req, res) => {
              const category = url.startsWith('http') ? data.title.split(' ')[0] : decodeURIComponent(url).split(' ')[0];
              await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon', data.image_url);
              await saveHistory(data);
+             await linkProductToUser(req.user.email, data.asin);
              
              // Log detalhado do produto capturado
              const titleShort = data.title ? data.title.substring(0, 50) : 'S/Título';
@@ -256,10 +257,10 @@ app.get('/api/audit/progress', (req, res) => {
   res.json(currentAuditProgress);
 });
 
-app.get('/api/history', async (req, res) => {
+app.get('/api/history', authMiddleware, async (req, res) => {
   try {
     const isTrash = req.query.trash === 'true';
-    const history = await getHistory(isTrash);
+    const history = await getHistory(isTrash, req.user.role, req.user.email);
     
     const grouped = {};
     history.forEach(row => {

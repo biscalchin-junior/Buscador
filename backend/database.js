@@ -161,19 +161,34 @@ function saveHistory(historyData) {
   });
 }
 
-function getHistory(includeDeleted = false) {
+function getHistory(includeDeleted = false, userRole = 'SUPERADMIN', userEmail = null) {
   return new Promise((resolve, reject) => {
-    db.all(
-      `SELECT p.title, p.url, p.category, p.image_url, p.is_active, p.is_deleted, p.store, h.* 
-       FROM products p 
-       JOIN price_history h ON p.asin = h.asin 
-       WHERE p.is_deleted = ?
-       ORDER BY h.date DESC`,
-      [includeDeleted ? 1 : 0],
-      (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      }
+    let query = `SELECT p.title, p.url, p.category, p.image_url, p.is_active, p.is_deleted, p.store, h.* 
+                 FROM products p 
+                 JOIN price_history h ON p.asin = h.asin `;
+                 
+    if (userRole === 'USER' && userEmail) {
+      query += ` JOIN user_products up ON p.asin = up.asin AND up.user_email = ? `;
+    }
+    
+    query += ` WHERE p.is_deleted = ? ORDER BY h.date DESC`;
+    
+    const params = userRole === 'USER' && userEmail ? [userEmail, includeDeleted ? 1 : 0] : [includeDeleted ? 1 : 0];
+
+    db.all(query, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
+function linkProductToUser(userEmail, asin) {
+  return new Promise((resolve, reject) => {
+    if (!userEmail || !asin) return resolve();
+    db.run(
+      `INSERT OR IGNORE INTO user_products (user_email, asin) VALUES (?, ?)`,
+      [userEmail, asin],
+      err => err ? reject(err) : resolve()
     );
   });
 }
@@ -224,6 +239,6 @@ function deleteAllTrash() {
 }
 
 module.exports = {
-  initDb, saveProduct, saveHistory, getHistory, updateProductStatus, trashProduct, 
+  initDb, saveProduct, saveHistory, getHistory, linkProductToUser, updateProductStatus, trashProduct, 
   getSetting, saveSetting, getActiveProducts, trashAllProducts, deleteAllTrash
 };
