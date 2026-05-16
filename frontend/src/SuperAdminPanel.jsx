@@ -193,6 +193,16 @@ export default function SuperAdminPanel() {
                   <td className="p-4 text-[10px]">{new Date(f.history_date).toLocaleString()}</td>
                   <td className="p-4">
                     <div className="flex gap-2">
+                      <button onClick={async () => {
+                         try {
+                           await fetch(`${API_URL}/audit`, {
+                             method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                             body: JSON.stringify({ urls: [f.url] })
+                           });
+                           alert('Recapturado!');
+                           fetchFlagged();
+                         } catch { }
+                      }} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase bg-black text-white">SINC</button>
                       <button onClick={() => setSelectedLog(f.review_log)} className="border border-black px-2 py-0.5 text-[9px] font-bold">LOG</button>
                       <button onClick={() => handleResolve(f.asin)} className="bg-black text-white px-2 py-0.5 text-[9px] font-bold uppercase">OK</button>
                     </div>

@@ -124,6 +124,16 @@ const Dashboard = ({ history, loading, onSearch }) => {
     } catch { }
   };
 
+  const handleRescan = async (url) => {
+    try {
+      await fetch(`${API_URL}/audit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ urls: [url] })
+      });
+      onSearch();
+    } catch { }
+  };
+
   const filtered = (history || []).filter(item => 
     !searchFilter || item.title?.toLowerCase().includes(searchFilter.toLowerCase()) || item.asin?.toLowerCase().includes(searchFilter.toLowerCase())
   );
@@ -143,7 +153,7 @@ const Dashboard = ({ history, loading, onSearch }) => {
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-black">
-              {['Produto', 'Vendido por', 'Valor', 'Variação', 'Gráfico', 'Ações'].map(h => (
+              {['Produto', 'Vendido por', 'Preço De', 'Preço Atual', 'Variação', 'Gráfico', 'Ações'].map(h => (
                 <th key={h} className="p-4 font-bold uppercase">{h}</th>
               ))}
             </tr>
@@ -162,17 +172,30 @@ const Dashboard = ({ history, loading, onSearch }) => {
                     </div>
                   </td>
                   <td className="p-4 uppercase">{latest.main_seller || item.store}</td>
+                  <td className="p-4">
+                    {latest.old_price > 0 && (
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-gray-400 line-through">R$ {latest.old_price.toFixed(2)}</span>
+                        {latest.old_price > latest.main_price && (
+                          <span className="text-[9px] font-bold text-red-500">
+                            -{(((latest.old_price - latest.main_price) / latest.old_price) * 100).toFixed(0)}% REAL
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {(!latest.old_price || latest.old_price <= 0) && <span className="text-[10px] font-bold text-gray-300">S/ BASE</span>}
+                  </td>
                   <td className="p-4 font-bold">
                     <div>R$ {(latest.main_price || 0).toFixed(2)}</div>
                     <div className="text-[9px] font-bold text-gray-400 uppercase mt-1">
-                      Em: {latest.date ? new Date(latest.date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      Captura: {latest.date ? new Date(latest.date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </div>
                   </td>
                   <td className="p-4">
                     {renderVariationBadge(item)}
                     {item.history && item.history.length > 1 && (
                       <div className="text-[9px] font-bold text-gray-400 uppercase mt-1">
-                        Ant: {new Date(item.history[1].date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        Anterior: {new Date(item.history[1].date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </div>
                     )}
                   </td>
@@ -187,6 +210,7 @@ const Dashboard = ({ history, loading, onSearch }) => {
                   </td>
                   <td className="p-4">
                     <div className="flex gap-2">
+                      <button onClick={() => handleRescan(item.url)} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase bg-black text-white">SINC</button>
                       <button onClick={() => handleFeedback(item.asin, 'ok')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase">OK</button>
                       <button onClick={() => handleFeedback(item.asin, 'error')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase text-red-500">ERRO</button>
                       <button onClick={() => toggleTrash(item.asin, viewMode === 'trash')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase">DEL</button>
