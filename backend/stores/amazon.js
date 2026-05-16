@@ -60,24 +60,31 @@ class AmazonStore extends GenericStore {
                 return null;
             }
 
+            const logs = [];
+            const addDebug = (m) => logs.push(`[${new Date().toLocaleTimeString()}] ${m}`);
+
             // ========== 1. TÍTULO ==========
             const title = await this.tryText(page, [
                 '#productTitle',
                 '.a-size-large.product-title-word-break'
             ]);
             if (!title) {
+                addDebug("ERRO: Título não encontrado usando seletores padrão.");
                 emitLog(`[Amazon] Título não encontrado para o link acessado.`, 'warn');
                 return null;
             }
+            addDebug(`Título encontrado: "${title.substring(0, 30)}..."`);
             
             // ========== 1.5 IMAGEM ==========
             let imageUrl = null;
             try {
                 imageUrl = await page.$eval('#landingImage, #imgBlkFront, .a-dynamic-image', el => el.getAttribute('src') || el.getAttribute('data-old-hires'));
-            } catch (e) {}
+                addDebug(`Imagem capturada: ${imageUrl ? 'SIM' : 'NÃO'}`);
+            } catch (e) {
+                addDebug("AVISO: Falha ao capturar imagem.");
+            }
 
             // ========== 2. PREÇO À VISTA (principal) ==========
-            // Usar $$eval para pegar TODOS os .a-offscreen com preço e filtrar vazios
             let mainPrice = null;
             try {
                 const allPrices = await page.$$eval('.a-offscreen', els => 
@@ -85,43 +92,47 @@ class AmazonStore extends GenericStore {
                 );
                 if (allPrices.length > 0) {
                     mainPrice = normalizePrice(allPrices[0]);
+                    addDebug(`Preço Principal (offscreen): ${allPrices[0]} -> R$ ${mainPrice}`);
                     emitLog(`[Amazon] Preço encontrado: R$ ${mainPrice} (entre ${allPrices.length} opções na tela)`, 'data');
                 }
             } catch (e) {}
 
             // Fallback: tentar seletores específicos
             if (!mainPrice || mainPrice <= 0) {
+                addDebug("Tentando seletores de preço específicos (fallback)...");
                 mainPrice = await this.tryPrice(page, [
                     '.a-price .a-offscreen',
                     '#priceblock_ourprice',
                     '#priceblock_dealprice'
                 ]);
+                if (mainPrice) addDebug(`Preço encontrado via fallback: R$ ${mainPrice}`);
             }
 
             if (!mainPrice || mainPrice <= 0) {
+                addDebug("ERRO CRÍTICO: Nenhum preço válido encontrado na página.");
                 emitLog(`[Amazon] Preço não encontrado para: ${title?.substring(0, 40)}`, 'warn');
-                return null;
+                return { asin: this.extractIdFromUrl(url), error: true, logs: logs.join('\n') };
             }
 
             // ========== 3. PREÇO "DE:" (valor antigo / riscado) ==========
             let oldPrice = null;
-            // Tentar dentro do bloco principal de preço primeiro
             try {
-                oldPrice = await page.$eval('#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen', el => el.textContent.trim());
-                oldPrice = normalizePrice(oldPrice);
-            } catch (e) { oldPrice = null; }
+                const rawOld = await page.$eval('#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen', el => el.textContent.trim());
+                oldPrice = normalizePrice(rawOld);
+                addDebug(`Preço "De:" encontrado (bloco core): ${rawOld} -> R$ ${oldPrice}`);
+            } catch (e) { }
             
-            // Fallback: procurar "De: R$..." nos .a-offscreen
             if (!oldPrice) {
                 try {
                     const dePrices = await page.$$eval('.a-offscreen', els => 
                         els.map(e => e.textContent.trim()).filter(t => t && t.startsWith('De:'))
                     );
+                    if (dePrices.length > 0) addDebug(`Encontradas ${dePrices.length} menções de "De:"`);
                     for (const deText of dePrices) {
                         const candidate = normalizePrice(deText.replace('De:', ''));
-                        // Só aceitar se for MAIOR que o preço principal (desconto real)
                         if (candidate > mainPrice) {
                             oldPrice = candidate;
+                            addDebug(`Candidato "De:" aceito: ${deText} -> R$ ${oldPrice}`);
                             break;
                         }
                     }
@@ -129,6 +140,8 @@ class AmazonStore extends GenericStore {
             }
             if (oldPrice) {
                 emitLog(`[Amazon] Preço "De:" capturado: R$ ${oldPrice}`, 'data');
+            } else {
+                addDebug("Preço 'De:' não identificado (produto sem desconto ou tag oculta).");
             }
 
             // ========== 4. PARCELAMENTO ==========
@@ -145,23 +158,21 @@ class AmazonStore extends GenericStore {
             ]);
 
             if (installmentText) {
-                // Regex muito flexível para pegar variações:
-                // "em até 10x de R$ 189,90 sem juros"
-                // "12x R$ 312,12"
-                // "10x de R$ 189,90"
-                // "Em até 12x de R$ 312,12 sem juros"
+                addDebug(`Texto de parcelamento capturado: "${installmentText}"`);
                 const instMatch = installmentText.match(/(\d+)\s*x\s*(?:de\s+)?R\$\s*([\d.,]+)/i);
                 if (instMatch) {
                     installments_count = parseInt(instMatch[1]);
                     installment_value = normalizePrice(instMatch[2]);
                     installment_total = parseFloat((installments_count * installment_value).toFixed(2));
                     
-                    // Calcula % de acréscimo sobre o preço à vista
                     if (installment_total > mainPrice) {
                         interest_rate = parseFloat((((installment_total / mainPrice) - 1) * 100).toFixed(2));
                     }
 
+                    addDebug(`Parcelamento parseado: ${installments_count}x de R$ ${installment_value} (Total: R$ ${installment_total})`);
                     emitLog(`[Amazon] Parcelamento: ${installments_count}x de R$ ${installment_value.toFixed(2)} = R$ ${installment_total.toFixed(2)} | Juros: ${interest_rate}%`, 'data');
+                } else {
+                    addDebug("AVISO: Texto de parcelamento encontrado mas não corresponde ao padrão esperado.");
                 }
             }
 
@@ -182,9 +193,13 @@ class AmazonStore extends GenericStore {
             const foundSeller = await this.tryText(page, sellerSelectors);
             if (foundSeller) {
                 mainSeller = foundSeller;
+                addDebug(`Vendedor encontrado: ${mainSeller}`);
+            } else {
+                addDebug(`Vendedor não encontrado explicitamente, usando padrão: ${mainSeller}`);
             }
 
             emitLog(`[Amazon] Resultado: ${title.trim().substring(0, 50)}... | À Vista: R$ ${mainPrice} | Vendido por: ${mainSeller}`, 'success');
+            addDebug("Extração finalizada com sucesso.");
 
             return {
                 asin: this.extractIdFromUrl(url),
@@ -200,7 +215,8 @@ class AmazonStore extends GenericStore {
                 installment_value: installment_value,
                 installment_total: installment_total,
                 interest_rate: interest_rate,
-                store: 'Amazon'
+                store: 'Amazon',
+                review_log: logs.join('\n')
             };
 
         } catch (e) {

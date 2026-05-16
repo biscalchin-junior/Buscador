@@ -30,7 +30,7 @@ class BrowserManager {
 
         // Buscar configuração de headless do banco
         const headlessSetting = await getSetting('is_headless');
-        const isHeadless = headlessSetting === 'true';
+        const isHeadless = headlessSetting !== 'false'; // Padrão é true
 
         console.log(`[BrowserManager] Iniciando contexto persistente (Headless: ${isHeadless}) em: ${this.browserPath}`);
 

@@ -1,17 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, BarChart3, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { Users, Search, BarChart3, RefreshCw, TrendingUp, TrendingDown, Settings, AlertTriangle, ExternalLink, FileText, FileSearch, X, CheckCircle2 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export default function SuperAdminPanel() {
   const { token } = useAuth();
-  const [tab, setTab] = useState('searches');
+  const [tab, setTab] = useState('dashboard');
   const [searches, setSearches] = useState([]);
   const [users, setUsers] = useState([]);
+  const [flagged, setFlagged] = useState([]);
+  const [selectedLog, setSelectedLog] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState({ cronSchedule: '0 0 * * *', isHeadless: true, loggingEnabled: true });
+  const [stats, setStats] = useState({ liveUsers: 0, totalProducts: 0, totalErrors: 0, system: {}, topDiscounts: [] });
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  async function fetchStats(silent = false) {
+    if (!silent) setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/admin/stats`, { headers });
+      setStats(await res.json());
+    } catch {} finally { if (!silent) setLoading(false); }
+  }
 
   async function fetchSearches() {
     setLoading(true);
@@ -29,113 +41,254 @@ export default function SuperAdminPanel() {
     } catch {} finally { setLoading(false); }
   }
 
+  async function fetchFlagged() {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/admin/flagged-products`, { headers });
+      setFlagged(await res.json());
+    } catch {} finally { setLoading(false); }
+  }
+
+  async function handleResolve(asin) {
+    try {
+        const res = await fetch(`${API_URL}/admin/product/${asin}/resolve`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+            alert('Ajustado!');
+            fetchFlagged();
+        }
+    } catch (e) { alert('Erro ao resolver'); }
+  }
+
+  async function fetchSettings() {
+    try {
+      const res = await fetch(`${API_URL}/settings`, { headers });
+      setSettings(await res.json());
+    } catch {}
+  }
+
+  async function saveSettings(newSettings) {
+    try {
+      await fetch(`${API_URL}/settings`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings)
+      });
+      setSettings(newSettings);
+      alert('Salvo!');
+    } catch { alert('Erro'); }
+  }
+
   useEffect(() => {
     if (tab === 'searches') fetchSearches();
-    else fetchUsers();
+    else if (tab === 'users') fetchUsers();
+    else if (tab === 'settings') fetchSettings();
+    else if (tab === 'flagged') fetchFlagged();
+    else if (tab === 'dashboard') {
+      fetchStats();
+      const iv = setInterval(() => fetchStats(true), 5000); // Atualiza em silêncio a cada 5s
+      return () => clearInterval(iv);
+    }
   }, [tab]);
 
   const TABS = [
-    { id: 'searches', label: 'Pesquisas Públicas', icon: <Search size={14}/> },
-    { id: 'users', label: 'Usuários', icon: <Users size={14}/> },
+    { id: 'dashboard', label: 'DASHBOARD' },
+    { id: 'searches', label: 'PESQUISAS' },
+    { id: 'users', label: 'USUÁRIOS' },
+    { id: 'flagged', label: 'REVISÃO' },
+    { id: 'settings', label: 'AJUSTES' },
   ];
 
   return (
-    <section className="py-16 section-container">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-black text-slate-950">Painel Superadmin</h2>
-          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Inteligência da Plataforma</p>
-        </div>
-        <button onClick={() => tab === 'searches' ? fetchSearches() : fetchUsers()} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''}/>
+    <section className="py-12 border-t border-black">
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-xl font-bold uppercase">Superadmin</h2>
+        <button onClick={() => fetchStats()} className="border border-black px-4 py-1 text-xs font-bold uppercase">
+          {loading ? 'SINC...' : 'RECARREGAR'}
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-8 overflow-x-auto">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all ${tab === t.id ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-            {t.icon} {t.label}
+            className={`px-4 py-1 text-[10px] font-bold uppercase border border-black ${tab === t.id ? 'bg-black text-white' : 'bg-white text-black'}`}>
+            {t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'searches' && (
-        <div className="glass-card overflow-hidden border-slate-200/50">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-black text-slate-950 text-sm">Pesquisas Registradas</h3>
-            <span className="text-[10px] font-bold text-slate-400 uppercase">{searches.length} registros</span>
+      {tab === 'dashboard' && (
+        <div className="space-y-8">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+             {[
+               { label: 'Online', value: stats.liveUsers },
+               { label: 'Ativos', value: stats.totalProducts },
+               { label: 'Erros', value: stats.totalErrors },
+               { label: 'CPU', value: stats.system?.cpuUsage || '0%' },
+               { label: 'RAM', value: stats.system?.memUsage || '0MB' }
+             ].map((card, i) => (
+               <div key={i} className="border border-black p-4">
+                  <p className="text-[9px] font-bold uppercase">{card.label}</p>
+                  <h4 className="text-xl font-bold">{card.value}</h4>
+               </div>
+             ))}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50/70">
-                  {['Termo', 'Usuário', 'Item Encontrado', 'Preço', 'Loja', 'Data', 'Contagem'].map(h => (
-                    <th key={h} className="px-5 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {searches.map(s => (
-                  <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-5 py-3 text-xs font-bold text-slate-800">{s.term}</td>
-                    <td className="px-5 py-3 text-xs text-slate-500">{s.user_label}</td>
-                    <td className="px-5 py-3 text-xs text-slate-600 max-w-[200px] truncate">{s.item_title || '—'}</td>
-                    <td className="px-5 py-3 text-xs font-black text-emerald-600">{s.item_price ? `R$ ${s.item_price.toFixed(2)}` : '—'}</td>
-                    <td className="px-5 py-3 text-xs text-slate-500">{s.item_store || '—'}</td>
-                    <td className="px-5 py-3 text-xs text-slate-400">{new Date(s.searched_at).toLocaleString('pt-BR')}</td>
-                    <td className="px-5 py-3 text-xs font-black text-blue-600">{s.search_count}x</td>
-                  </tr>
-                ))}
-                {searches.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-10 text-sm text-slate-400 font-medium">Nenhuma pesquisa registrada ainda.</td></tr>
-                )}
-              </tbody>
-            </table>
+
+          <div className="border border-black">
+             <div className="p-4 border-b border-black font-bold uppercase text-xs">Top Descontos Reais</div>
+             <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                   <thead>
+                      <tr className="border-b border-black">
+                         {['Loja', 'Produto', 'Anterior', 'Atual', 'Desc %'].map(h => (
+                           <th key={h} className="p-4 font-bold uppercase">{h}</th>
+                         ))}
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-black">
+                      {stats.topDiscounts?.map(p => (
+                        <tr key={p.asin}>
+                           <td className="p-4 uppercase">{p.store}</td>
+                           <td className="p-4 truncate max-w-[200px] uppercase font-bold">{p.title}</td>
+                           <td className="p-4">R$ {p.last_price?.toFixed(2)}</td>
+                           <td className="p-4 font-bold">R$ {p.current_price?.toFixed(2)}</td>
+                           <td className="p-4 font-bold">-{p.diff_percent?.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                   </tbody>
+                </table>
+             </div>
           </div>
         </div>
       )}
 
-      {tab === 'users' && (
-        <div className="glass-card overflow-hidden border-slate-200/50">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-black text-slate-950 text-sm">Usuários Cadastrados</h3>
-            <span className="text-[10px] font-bold text-slate-400 uppercase">{users.length} usuários</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50/70">
-                  {['ID', 'E-mail', 'Perfil', 'Nascimento', 'Cadastrado em', 'Status'].map(h => (
-                    <th key={h} className="px-5 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {users.map(u => (
-                  <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-5 py-3 text-xs text-slate-400">#{u.id}</td>
-                    <td className="px-5 py-3 text-xs font-bold text-slate-800">{u.email}</td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${u.role === 'SUPERADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-slate-500">{u.birth_date || '—'}</td>
-                    <td className="px-5 py-3 text-xs text-slate-400">{new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                        {u.is_active ? 'Ativo' : 'Inativo'}
-                      </span>
-                    </td>
-                  </tr>
+      {selectedLog && (
+        <div className="fixed inset-0 z-[200] bg-white border border-black p-8 overflow-auto">
+           <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold uppercase">Log Técnico</h3>
+              <button onClick={() => setSelectedLog(null)} className="border border-black px-4 py-1 font-bold">FECHAR</button>
+           </div>
+           <pre className="text-[10px] whitespace-pre-wrap">{selectedLog}</pre>
+        </div>
+      )}
+
+      {tab === 'flagged' && (
+        <div className="border border-black">
+          <div className="p-4 border-b border-black font-bold uppercase text-xs">Produtos em Revisão</div>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-black">
+                {['Produto', 'Preço', 'Data', 'Ações'].map(h => (
+                  <th key={h} className="p-4 font-bold uppercase">{h}</th>
                 ))}
-                {users.length === 0 && (
-                  <tr><td colSpan={6} className="text-center py-10 text-sm text-slate-400 font-medium">Nenhum usuário cadastrado.</td></tr>
-                )}
-              </tbody>
-            </table>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black">
+              {flagged.map(f => (
+                <tr key={f.asin}>
+                  <td className="p-4 truncate max-w-[200px] uppercase font-bold">{f.title}</td>
+                  <td className="p-4">R$ {f.main_price?.toFixed(2)}</td>
+                  <td className="p-4 text-[10px]">{new Date(f.history_date).toLocaleString()}</td>
+                  <td className="p-4">
+                    <div className="flex gap-2">
+                      <button onClick={() => setSelectedLog(f.review_log)} className="border border-black px-2 py-0.5 text-[9px] font-bold">LOG</button>
+                      <button onClick={() => handleResolve(f.asin)} className="bg-black text-white px-2 py-0.5 text-[9px] font-bold uppercase">OK</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div className="max-w-md space-y-8">
+          <div className="border border-black p-6 space-y-6">
+            <h3 className="font-bold uppercase text-sm">Controle do Scraper</h3>
+            
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase">Modo Invisível (Headless)</span>
+                <button 
+                  onClick={() => setSettings({...settings, isHeadless: !settings.isHeadless})}
+                  className={`px-3 py-1 text-[9px] font-bold uppercase border border-black ${settings.isHeadless ? 'bg-black text-white' : 'bg-white text-black'}`}
+                >
+                  {settings.isHeadless ? 'ATIVO' : 'INATIVO'}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase">Logs de Auditoria</span>
+                <button 
+                  onClick={() => setSettings({...settings, loggingEnabled: !settings.loggingEnabled})}
+                  className={`px-3 py-1 text-[9px] font-bold uppercase border border-black ${settings.loggingEnabled ? 'bg-black text-white' : 'bg-white text-black'}`}
+                >
+                  {settings.loggingEnabled ? 'ATIVO' : 'INATIVO'}
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold block mb-2 uppercase">Intervalo de Varredura</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="number" 
+                    min="1"
+                    value={(() => {
+                      const parts = settings.cronSchedule.split(' ');
+                      if (parts[1] && parts[1].startsWith('*/')) return parseInt(parts[1].replace('*/', '')); // horas
+                      if (parts[2] && parts[2].startsWith('*/')) return parseInt(parts[2].replace('*/', '')); // dias
+                      return 24;
+                    })()} 
+                    onChange={e => {
+                      const val = Math.max(1, parseInt(e.target.value) || 1);
+                      const isDays = settings.cronSchedule.split(' ')[2]?.startsWith('*/');
+                      if (isDays) setSettings({...settings, cronSchedule: `0 0 */${val} * *`});
+                      else setSettings({...settings, cronSchedule: `0 */${val} * * *`});
+                    }}
+                    className="border border-black w-20 p-2 text-xs outline-none" 
+                  />
+                  <select
+                    value={settings.cronSchedule.split(' ')[2]?.startsWith('*/') ? 'dias' : 'horas'}
+                    onChange={e => {
+                      const val = (() => {
+                        const parts = settings.cronSchedule.split(' ');
+                        if (parts[1] && parts[1].startsWith('*/')) return parseInt(parts[1].replace('*/', ''));
+                        if (parts[2] && parts[2].startsWith('*/')) return parseInt(parts[2].replace('*/', ''));
+                        return 24;
+                      })();
+                      if (e.target.value === 'dias') setSettings({...settings, cronSchedule: `0 0 */${val} * *`});
+                      else setSettings({...settings, cronSchedule: `0 */${val} * * *`});
+                    }}
+                    className="border border-black flex-1 p-2 text-xs outline-none font-bold uppercase"
+                  >
+                    <option value="horas">Horas</option>
+                    <option value="dias">Dias</option>
+                  </select>
+                </div>
+                <p className="text-[8px] font-bold text-gray-400 mt-1">SISTEMA TRADUZIU: {settings.cronSchedule}</p>
+              </div>
+            </div>
+
+            <button onClick={() => saveSettings(settings)} className="w-full bg-black text-white py-3 text-xs font-bold uppercase">Salvar Ajustes</button>
+          </div>
+
+          <div className="border border-black p-6 space-y-4">
+             <h3 className="font-bold uppercase text-sm text-red-500">Ações Críticas</h3>
+             <button 
+               onClick={async () => {
+                 setLoading(true);
+                 try {
+                   await fetch(`${API_URL}/audit/active`, { method: 'POST', headers });
+                   alert('Atualização global iniciada!');
+                 } catch { alert('Erro'); } finally { setLoading(false); }
+               }}
+               className="w-full border border-black py-3 text-xs font-bold uppercase"
+             >
+               {loading ? 'Processando...' : 'Forçar Atualização de Toda a Base'}
+             </button>
           </div>
         </div>
       )}

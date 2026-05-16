@@ -36,6 +36,8 @@ function initDb() {
     db.run(`ALTER TABLE products ADD COLUMN canonical_id TEXT`, () => {});
     db.run(`ALTER TABLE products ADD COLUMN last_checked DATETIME`, () => {});
     db.run(`ALTER TABLE products ADD COLUMN check_interval_minutes INTEGER DEFAULT 360`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN feedback_status TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN review_log TEXT`, () => {});
 
     db.run(`
       CREATE TABLE IF NOT EXISTS price_history (
@@ -115,18 +117,26 @@ function saveProduct(asin, title, url, category = 'Geral', store = 'Amazon', ima
 function saveHistory(historyData) {
   return new Promise((resolve, reject) => {
     db.get(
-      `SELECT main_price FROM price_history WHERE asin = ? ORDER BY date DESC LIMIT 1`,
+      `SELECT main_price, date FROM price_history WHERE asin = ? ORDER BY date DESC LIMIT 1`,
       [historyData.asin],
       (err, row) => {
         if (err) return reject(err);
 
         let variation = 'SAME';
         if (row) {
-          if (historyData.main_price > row.main_price) {
-            variation = 'UP';
-          } else if (historyData.main_price < row.main_price) {
-            variation = 'DOWN';
+          const lastPrice = row.main_price;
+          const lastDate = new Date(row.date);
+          const now = new Date();
+          const hoursSinceLast = (now - lastDate) / (1000 * 60 * 60);
+
+          // Se o preço for o mesmo E a última captura foi há menos de 12 horas, não salva redundante
+          if (historyData.main_price === lastPrice && hoursSinceLast < 12) {
+            console.log(`[DB] Preço idêntico para ${historyData.asin} em menos de 12h. Pulando registro histórico.`);
+            return resolve(null);
           }
+
+          if (historyData.main_price > lastPrice) variation = 'UP';
+          else if (historyData.main_price < lastPrice) variation = 'DOWN';
         }
 
         const localDate = new Date().toLocaleString('sv-SE').replace(' ', 'T');
@@ -219,7 +229,7 @@ function saveSetting(key, value) {
 
 function getActiveProducts() {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT url FROM products WHERE is_active = 1 AND is_deleted = 0`, (err, rows) => err ? reject(err) : resolve(rows));
+    db.all(`SELECT * FROM products WHERE is_active = 1 AND is_deleted = 0`, (err, rows) => err ? reject(err) : resolve(rows));
   });
 }
 
@@ -238,7 +248,75 @@ function deleteAllTrash() {
   });
 }
 
+function updateProductFeedback(asin, status, reviewLog = null) {
+  return new Promise((resolve, reject) => {
+    db.run(`UPDATE products SET feedback_status = ?, review_log = ? WHERE asin = ?`, [status, reviewLog, asin], err => err ? reject(err) : resolve());
+  });
+}
+
+function getFlaggedProducts() {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT p.*, h.main_price, h.old_price, h.date as history_date
+      FROM products p
+      LEFT JOIN price_history h ON h.asin = p.asin
+      WHERE p.feedback_status = 'error'
+      GROUP BY p.asin
+      HAVING h.date = MAX(h.date) OR h.date IS NULL
+      ORDER BY p.last_checked DESC
+    `;
+    db.all(query, [], (err, rows) => err ? reject(err) : resolve(rows));
+  });
+}
+
+function getAdminStats() {
+  return new Promise((resolve, reject) => {
+    const stats = {};
+    db.get(`SELECT COUNT(*) as total FROM products WHERE is_deleted = 0`, (err, row) => {
+      if (err) return reject(err);
+      stats.totalProducts = row.total;
+      db.get(`SELECT COUNT(*) as total FROM products WHERE feedback_status = 'error'`, (err, row) => {
+        if (err) return reject(err);
+        stats.totalErrors = row.total;
+        
+        // Top 100 Discounts: Penúltima vs Última Captura
+        const topQuery = `
+          SELECT 
+            p.asin, p.title, p.store, 
+            curr.main_price as current_price,
+            prev.main_price as last_price,
+            ((prev.main_price - curr.main_price) / prev.main_price * 100) as diff_percent
+          FROM products p
+          JOIN (
+            SELECT asin, main_price, id 
+            FROM price_history 
+            WHERE id IN (SELECT MAX(id) FROM price_history GROUP BY asin)
+          ) curr ON p.asin = curr.asin
+          JOIN (
+            SELECT h1.asin, h1.main_price
+            FROM price_history h1
+            WHERE h1.id = (
+              SELECT MAX(h2.id) 
+              FROM price_history h2 
+              WHERE h2.asin = h1.asin AND h2.id < (SELECT MAX(h3.id) FROM price_history h3 WHERE h3.asin = h1.asin)
+            )
+          ) prev ON p.asin = prev.asin
+          WHERE p.is_deleted = 0 AND curr.main_price < prev.main_price
+          ORDER BY diff_percent DESC
+          LIMIT 100
+        `;
+        db.all(topQuery, (err, rows) => {
+          if (err) return reject(err);
+          stats.topDiscounts = rows;
+          resolve(stats);
+        });
+      });
+    });
+  });
+}
+
 module.exports = {
   initDb, saveProduct, saveHistory, getHistory, linkProductToUser, updateProductStatus, trashProduct, 
-  getSetting, saveSetting, getActiveProducts, trashAllProducts, deleteAllTrash
+  getSetting, saveSetting, getActiveProducts, trashAllProducts, deleteAllTrash,
+  updateProductFeedback, getFlaggedProducts, getAdminStats
 };

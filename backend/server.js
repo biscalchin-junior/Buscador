@@ -5,7 +5,7 @@ const {
   initDb, saveProduct, saveHistory, getHistory, linkProductToUser,
   updateProductStatus, trashProduct, getSetting, 
   saveSetting, getActiveProducts, trashAllProducts,
-  deleteAllTrash
+  deleteAllTrash, updateProductFeedback, getFlaggedProducts, getAdminStats
 } = require('./database');
 const { scrapeAmazon } = require('./scraper');
 const logger = require('./logger');
@@ -14,12 +14,31 @@ const {
   initAuthDb, generateToken, authMiddleware, superadminMiddleware,
   findUserByEmail, createUser, saveGuestSearch, getGuestSearches, getAllUsers, bcrypt
 } = require('./auth');
+const os = require('os');
 
 const app = express();
 const PORT = 4000;
 
 app.use(cors());
 app.use(express.json());
+
+// Tracking de usuários online
+const activeUsers = new Map();
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    const userId = req.headers['authorization'] || req.ip;
+    activeUsers.set(userId, Date.now());
+  }
+  next();
+});
+
+// Limpar usuários inativos (5 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, lastSeen] of activeUsers.entries()) {
+    if (now - lastSeen > 5 * 60 * 1000) activeUsers.delete(id);
+  }
+}, 30000);
 
 // Inicia o banco de dados
 initDb();
@@ -324,30 +343,114 @@ app.put('/api/product/:asin/restore', async (req, res) => {
   }
 });
 
-app.get('/api/settings/cron', async (req, res) => {
+app.post('/api/product/:asin/feedback', authMiddleware, async (req, res) => {
   try {
-    const schedule = await getSetting('cron_schedule') || '0 0 * * *';
-    res.json({ schedule });
+    const { status } = req.body; // 'ok' or 'error'
+    const { asin } = req.params;
+
+    if (status === 'error') {
+      console.log(`[Feedback] Usuário reportou erro no ASIN ${asin}. Iniciando re-scrape de verificação...`);
+      // Buscar URL original no banco
+      const products = await getActiveProducts();
+      const product = products.find(p => p.asin === asin);
+      
+      if (product && product.url) {
+        const amazon = require('./stores/amazon');
+        const newData = await amazon.processProductDetail(product.url);
+        
+        if (newData) {
+          // Salvar o novo histórico e o log de revisão
+          await saveHistory(newData);
+          await updateProductFeedback(asin, 'error', newData.review_log);
+          console.log(`[Feedback] Re-scrape concluído para ${asin}. Log salvo para análise do Admin.`);
+        }
+      }
+    } else {
+      await updateProductFeedback(asin, status);
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Feedback] Erro:', error.message);
+    res.status(500).json({ error: 'Erro ao registrar feedback.' });
+  }
+});
+
+app.post('/api/admin/product/:asin/resolve', superadminMiddleware, async (req, res) => {
+  try {
+    const { asin } = req.params;
+    // Marca como 'fixed' para notificar o usuário
+    await updateProductFeedback(asin, 'fixed');
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao resolver produto.' });
+  }
+});
+
+app.get('/api/admin/flagged-products', superadminMiddleware, async (req, res) => {
+  try {
+    const products = await getFlaggedProducts();
+    res.json(products);
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao buscar produtos revisados.' });
+  }
+});
+
+app.get('/api/settings', superadminMiddleware, async (req, res) => {
+  try {
+    const cronSchedule = await getSetting('cron_schedule') || '0 0 * * *';
+    const isHeadless = await getSetting('is_headless') !== 'false';
+    const loggingEnabled = await getSetting('logging_enabled') !== 'false';
+    
+    res.json({ cronSchedule, isHeadless, loggingEnabled });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao buscar configurações.' });
   }
 });
 
-app.post('/api/settings/cron', async (req, res) => {
+app.post('/api/settings', superadminMiddleware, async (req, res) => {
   try {
-    const { schedule } = req.body;
-    if (!schedule) return res.status(400).json({ error: 'Cron schedule inválido.' });
+    const { cronSchedule, isHeadless, loggingEnabled } = req.body;
     
-    // Validar expressao
-    if (!cron.validate(schedule)) {
-      return res.status(400).json({ error: 'Formato Cron inválido. Use algo como "0 * * * *".' });
+    if (cronSchedule) {
+      if (!cron.validate(cronSchedule)) {
+        return res.status(400).json({ error: 'Formato Cron inválido. Use algo como "0 * * * *".' });
+      }
+      await saveSetting('cron_schedule', cronSchedule);
+      setupCron();
+    }
+    
+    if (isHeadless !== undefined) {
+      await saveSetting('is_headless', isHeadless ? 'true' : 'false');
+    }
+    
+    if (loggingEnabled !== undefined) {
+      await saveSetting('logging_enabled', loggingEnabled ? 'true' : 'false');
+      globalLoggingEnabled = loggingEnabled;
     }
 
-    await saveSetting('cron_schedule', schedule);
-    setupCron(); 
-    res.json({ success: true, schedule });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao salvar configuração.' });
+  }
+});
+
+app.get('/api/admin/stats', superadminMiddleware, async (req, res) => {
+  try {
+    const dbStats = await getAdminStats();
+    const systemInfo = {
+      cpuUsage: (os.loadavg()[0] * 100 / os.cpus().length).toFixed(2) + '%',
+      memUsage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + ' MB',
+      uptime: Math.floor(process.uptime()) + 's'
+    };
+    
+    res.json({
+      liveUsers: activeUsers.size,
+      ...dbStats,
+      system: systemInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Erro ao buscar estatísticas.' });
   }
 });
 
@@ -376,6 +479,13 @@ app.delete('/api/history/empty-trash', async (req, res) => {
 // Log Streaming logic
 const logBuffer = [];
 const logSubscribers = new Set();
+let globalLoggingEnabled = true;
+
+// Inicializar estado do log
+(async () => {
+  const setting = await getSetting('logging_enabled');
+  globalLoggingEnabled = setting !== 'false';
+})();
 
 function addLog(msg, type = 'info') {
   const logEntry = { id: Date.now() + Math.random(), msg, type, time: new Date().toLocaleTimeString() };
@@ -383,13 +493,15 @@ function addLog(msg, type = 'info') {
   if (logBuffer.length > 100) logBuffer.shift();
   
   // Salvar no arquivo físico para o usuário ler depois
-  const fs = require('fs');
-  const path = require('path');
-  const logLine = `[${new Date().toLocaleString()}] [${type.toUpperCase()}] ${msg}\n`;
-  try {
-    fs.appendFileSync(path.join(__dirname, 'audit.log'), logLine);
-  } catch (err) {
-    originalError('Erro ao escrever no arquivo de log:', err);
+  if (globalLoggingEnabled) {
+    const fs = require('fs');
+    const path = require('path');
+    const logLine = `[${new Date().toLocaleString()}] [${type.toUpperCase()}] ${msg}\n`;
+    try {
+      fs.appendFileSync(path.join(__dirname, 'audit.log'), logLine);
+    } catch (err) {
+      originalError('Erro ao escrever no arquivo de log:', err);
+    }
   }
 
   const sseData = `data: ${JSON.stringify(logEntry)}\n\n`;
@@ -510,64 +622,59 @@ app.post('/api/public/search', async (req, res) => {
   if (!term || !term.trim()) return res.status(400).json({ error: 'Termo de pesquisa obrigatório.' });
 
   try {
-    // Busca histórico existente no banco primeiro
+    // 1. Busca histórico existente no banco primeiro
     const history = await getHistory(false);
     const lowerTerm = term.toLowerCase();
-    const matched = history.filter(p =>
+    const dbMatched = history.filter(p =>
       p.title?.toLowerCase().includes(lowerTerm) ||
       p.asin?.toLowerCase().includes(lowerTerm)
     );
 
-    // Se não achou nada no banco, raspar na Amazon em tempo real
-    if (matched.length === 0) {
-      console.log(`[Guest Search] Item "${term}" não encontrado localmente. Iniciando scrape na Amazon...`);
-      try {
-        const scrapedData = await scrapeAmazon(term);
-        if (scrapedData && scrapedData.length > 0) {
-          for (const data of scrapedData) {
-            if (data.asin && data.asin !== 'UNKNOWN') {
-               const category = data.title ? data.title.split(' ')[0] : 'Geral';
-               await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon', data.image_url);
-               await saveHistory(data);
-               // Adapta os dados raspados para o formato que o frontend espera no histórico
-               matched.push({
-                 title: data.title,
-                 url: data.url,
-                 category: category,
-                 image_url: data.image_url,
-                 store: data.store || 'Amazon',
-                 asin: data.asin,
-                 main_price: data.main_price,
-                 old_price: data.old_price,
-                 history: [data] // mock do historico inicial
-               });
-            }
+    // 2. Sempre raspa na Amazon em tempo real para garantir dados frescos (Scrape Híbrido)
+    console.log(`[Guest Search] Iniciando scrape híbrido para "${term}"...`);
+    let webMatched = [];
+    try {
+      const scrapedData = await scrapeAmazon(term);
+      if (scrapedData && scrapedData.length > 0) {
+        for (const data of scrapedData) {
+          if (data.asin && data.asin !== 'UNKNOWN') {
+             const category = data.title ? data.title.split(' ')[0] : 'Geral';
+             await saveProduct(data.asin, data.title, data.url, category, data.store || 'Amazon', data.image_url);
+             await saveHistory(data);
+             webMatched.push({
+               asin: data.asin,
+               title: data.title,
+               url: data.url,
+               category: category,
+               image_url: data.image_url,
+               store: data.store || 'Amazon',
+               main_price: data.main_price,
+               old_price: data.old_price,
+               history: [{ date: new Date().toISOString(), main_price: data.main_price }]
+             });
           }
         }
-      } catch (scrapeErr) {
-        console.error(`[Guest Search] Erro ao raspar Amazon:`, scrapeErr.message);
       }
+    } catch (e) {
+      console.error(`[Guest Search] Erro no scrape: ${e.message}`);
     }
 
-    // Identifica o item mais barato
-    let cheapest = null;
-    if (matched.length > 0) {
-      cheapest = matched.reduce((min, p) => (p.main_price < (min?.main_price || Infinity) ? p : min), null);
+    // 3. Unificar resultados (removendo duplicados por ASIN, priorizando os mais novos da web)
+    const finalResultsMap = new Map();
+    dbMatched.forEach(item => finalResultsMap.set(item.asin, item));
+    webMatched.forEach(item => finalResultsMap.set(item.asin, item));
+    
+    const finalResults = Array.from(finalResultsMap.values());
+
+    // 4. Logar a pesquisa (Inteligência da plataforma)
+    if (finalResults.length > 0) {
+      const best = finalResults.reduce((min, p) => (p.main_price < (min?.main_price || Infinity) ? p : min), null);
+      saveGuestSearch(term, userLabel || 'Guest', best?.asin, best?.title, best?.main_price, best?.store).catch(() => {});
     }
 
-    // Salvar pesquisa silenciosamente (Inteligência da Plataforma)
-    await saveGuestSearch({
-      term: term.trim(),
-      userLabel: userLabel || 'Guest User',
-      userId: userId || null,
-      itemTitle: cheapest?.title || null,
-      itemAsin: cheapest?.asin || null,
-      itemPrice: cheapest?.main_price || null,
-      itemStore: cheapest?.store || null,
-    }).catch(() => {});
-
-    res.json({ results: matched, cheapest });
+    res.json({ results: finalResults });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Erro ao processar pesquisa.' });
   }
 });

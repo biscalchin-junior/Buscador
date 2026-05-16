@@ -1,120 +1,62 @@
 @import "tailwindcss";
 
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
-
 @theme {
   --font-outfit: "Outfit", sans-serif;
-  
-  --color-primary: #3b82f6;
-  --color-primary-dark: #1d4ed8;
-  --color-primary-light: #60a5fa;
-  
-  --color-secondary: #10b981;
-  --color-secondary-dark: #047857;
-  --color-secondary-light: #34d399;
-  
-  --color-background: #ffffff;
-  --color-surface: rgba(255, 255, 255, 0.8);
-
-  --animate-gradient-flow: gradientFlow 15s ease infinite;
-  --animate-fade-in: fadeIn 0.8s ease-out;
-  --animate-slide-up: slideUp 0.5s ease-out;
-  --animate-float: float 6s ease-in-out infinite;
-  --animate-pulse-slow: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-
-  @keyframes gradientFlow {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes slideUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-  }
-  @keyframes pulseSlow {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
+  --font-inter: "Inter", sans-serif;
 }
 
 @layer base {
   :root {
-    --text-main: #0f172a;
-    --text-dim: #64748b;
-    --border-light: rgba(0, 0, 0, 0.05);
+    --text-main: #000000;
+    --text-dim: #000000;
+    --border-light: #000000;
   }
 
   * {
-    @apply border-slate-200/60;
+    @apply border-black;
+    transition: none !important;
+    animation: none !important;
   }
 
   body {
-    @apply font-outfit text-slate-900 bg-white min-h-screen overflow-x-hidden antialiased selection:bg-blue-600/10 selection:text-blue-700;
-    background: 
-      radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
-      radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.03) 0%, transparent 50%),
-      #ffffff;
+    @apply font-inter text-black bg-white min-h-screen overflow-x-hidden antialiased;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  
+  button, a, input, select {
+    @apply outline-none ring-0;
+    transition: none !important;
+    transform: none !important;
+  }
+
+  /* Remover qualquer efeito de hover global */
+  *:hover {
+    background-color: inherit;
+    color: inherit;
+    transform: none !important;
+    box-shadow: none !important;
   }
 }
 
+@utility section-container {
+  @apply max-w-7xl mx-auto px-4 md:px-8;
+}
+
 @utility glass-card {
-  @apply bg-white/70 backdrop-blur-xl border border-slate-200/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] transition-all duration-500;
-}
-
-@utility glass-card-hover {
-  @apply hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:-translate-y-1 hover:border-blue-200/50;
-}
-
-@utility premium-shadow {
-  @apply shadow-[0_1px_2px_rgba(0,0,0,0.05),0_4px_12px_rgba(0,0,0,0.05)];
+  @apply bg-white border border-black p-6 mb-6;
 }
 
 @utility badge-premium {
-  @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-all;
+  @apply inline-flex items-center px-2 py-0.5 border border-black text-[9px] font-bold uppercase tracking-tighter;
 }
 
-@utility section-container {
-  @apply max-w-[1400px] mx-auto px-6 lg:px-12;
+@utility hero-gradient-text {
+  @apply text-black;
 }
 
-@utility spot-light {
-  @apply absolute -z-10 w-[500px] h-[500px] bg-blue-500/10 blur-[120px] rounded-full pointer-events-none;
-}
-
-.hero-gradient-text {
-  @apply bg-gradient-to-r from-slate-900 via-blue-800 to-slate-900 bg-clip-text text-transparent;
-}
-
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-.animate-pulse-slow {
-  animation: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
-}
-
-/* Grid Background */
-.bg-grid {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(0,0,0,0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0,0,0,0.02) 1px, transparent 1px);
+/* Esconder o tema escuro pois o usuário quer fundo branco sempre */
+.dark {
+  background-color: #ffffff !important;
+  color: #000000 !important;
 }
