@@ -124,10 +124,11 @@ class AmazonStore extends GenericStore {
             
             if (!oldPrice) {
                 try {
-                    const dePrices = await page.$$eval('.a-offscreen', els => 
+                    // Buscar apenas dentro do container principal do produto para evitar pegar preços de itens relacionados
+                    const dePrices = await page.$$eval('#ppd .a-offscreen, #centerCol .a-offscreen', els => 
                         els.map(e => e.textContent.trim()).filter(t => t && t.startsWith('De:'))
                     );
-                    if (dePrices.length > 0) addDebug(`Encontradas ${dePrices.length} menções de "De:"`);
+                    if (dePrices.length > 0) addDebug(`Encontradas ${dePrices.length} menções de "De:" no container principal`);
                     for (const deText of dePrices) {
                         const candidate = normalizePrice(deText.replace('De:', ''));
                         if (candidate > mainPrice) {
@@ -139,7 +140,14 @@ class AmazonStore extends GenericStore {
                 } catch (e) {}
             }
             if (oldPrice) {
-                emitLog(`[Amazon] Preço "De:" capturado: R$ ${oldPrice}`, 'data');
+                // Sanity Check: Se o "Preço De" for mais de 3x o preço atual (para itens caros)
+                // ou se for absurdamente discrepante, ignoramos para evitar erros de captura.
+                if (oldPrice > mainPrice * 3 && oldPrice > 500) {
+                    addDebug(`AVISO: Preço "De:" (R$ ${oldPrice}) parece irreal comparado ao atual (R$ ${mainPrice}). Ignorando.`);
+                    oldPrice = null;
+                } else {
+                    emitLog(`[Amazon] Preço "De:" capturado: R$ ${oldPrice}`, 'data');
+                }
             } else {
                 addDebug("Preço 'De:' não identificado (produto sem desconto ou tag oculta).");
             }

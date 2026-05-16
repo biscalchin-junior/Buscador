@@ -6,7 +6,7 @@ const {
   updateProductStatus, trashProduct, getSetting, 
   saveSetting, getActiveProducts, trashAllProducts,
   deleteAllTrash, updateProductFeedback, getFlaggedProducts, getAdminStats,
-  cleanupTrash
+  cleanupTrash, getTopSearchedProducts
 } = require('./database');
 const { scrapeAmazon } = require('./scraper');
 const logger = require('./logger');
@@ -313,7 +313,7 @@ app.get('/api/history', authMiddleware, async (req, res) => {
         if (!grouped[row.asin]) {
             grouped[row.asin] = {
                 asin: row.asin,
-                title: row.title,
+                title: row.title || 'Produto sem título',
                 url: row.url,
                 category: row.category,
                 store: row.store || 'Amazon',
@@ -325,18 +325,24 @@ app.get('/api/history', authMiddleware, async (req, res) => {
             };
         }
         
-        try { row.other_sellers = JSON.parse(row.other_sellers); } catch(e) { row.other_sellers = []; }
-        try { row.product_variations = JSON.parse(row.product_variations); } catch(e) { row.product_variations = {}; }
-
-        grouped[row.asin].history.push(row);
+        // Só adiciona ao histórico se houver dados de preço reais (date não é null)
+        if (row.date) {
+            try { row.other_sellers = JSON.parse(row.other_sellers); } catch(e) { row.other_sellers = []; }
+            try { row.product_variations = JSON.parse(row.product_variations); } catch(e) { row.product_variations = {}; }
+            grouped[row.asin].history.push(row);
+        }
     });
 
     Object.values(grouped).forEach(item => {
-        item.history.sort((a, b) => new Date(a.date) - new Date(b.date));
-        item.latest = item.history[item.history.length - 1];
+        if (item.history.length > 0) {
+            item.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+            item.latest = item.history[item.history.length - 1];
+        }
     });
 
-    res.json(Object.values(grouped));
+    const finalResult = Object.values(grouped);
+    console.log(`[API] Retornando ${finalResult.length} produtos únicos.`);
+    res.json(finalResult);
   } catch (error) {
     res.status(500).json({ error: 'Erro ao buscar histórico.' });
   }
@@ -730,6 +736,61 @@ app.get('/api/admin/users', superadminMiddleware, async (req, res) => {
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: 'Erro ao buscar usuários.' });
+  }
+});
+
+// GET /api/admin/system-stats (superadmin apenas)
+app.get('/api/admin/system-stats', superadminMiddleware, async (req, res) => {
+  const browserManager = require('./browser/browserManager');
+  let activePages = 0;
+  if (browserManager.context) {
+    try {
+      activePages = (await browserManager.context.pages()).length;
+    } catch (e) {}
+  }
+
+  res.json({
+    memory: process.memoryUsage(),
+    cpu: currentCpuPercent,
+    uptime: process.uptime(),
+    activePages: activePages,
+    pagesSinceRestart: browserManager.pagesCreated || 0
+  });
+});
+
+app.get('/api/public/top-searched', async (req, res) => {
+  try {
+    const history = await getTopSearchedProducts();
+    const grouped = {};
+    history.forEach(row => {
+      if (!grouped[row.asin]) {
+        grouped[row.asin] = {
+          asin: row.asin,
+          title: row.title || 'Produto sem título',
+          url: row.url,
+          category: row.category,
+          store: row.store || 'Amazon',
+          image_url: row.image_url,
+          is_active: row.is_active,
+          is_deleted: row.is_deleted,
+          history: [],
+          latest: null
+        };
+      }
+      if (row.main_price) {
+        grouped[row.asin].latest = {
+          main_price: row.main_price,
+          old_price: row.old_price,
+          date: row.date,
+          main_seller: row.main_seller
+        };
+        grouped[row.asin].history = [grouped[row.asin].latest];
+      }
+    });
+    res.json(Object.values(grouped));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar mais pesquisados.' });
   }
 });
 
