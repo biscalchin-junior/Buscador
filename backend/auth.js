@@ -140,7 +140,13 @@ function getGuestSearches() {
 
 function getAllUsers() {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT id, email, role, birth_date, created_at, is_active FROM users ORDER BY created_at DESC`, (err, rows) => err ? reject(err) : resolve(rows));
+    db.all(`
+      SELECT 
+        u.id, u.email, u.role, u.birth_date, u.created_at, u.is_active,
+        (SELECT COUNT(*) FROM user_products up WHERE up.user_email = u.email AND up.is_deleted = 0) as product_count
+      FROM users u 
+      ORDER BY u.created_at DESC
+    `, (err, rows) => err ? reject(err) : resolve(rows));
   });
 }
 

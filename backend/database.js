@@ -356,8 +356,17 @@ function getAdminStats() {
   });
 }
 
+function getPublicStats() {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT COUNT(*) as total FROM products WHERE is_deleted = 0`, (err, row) => {
+      if (err) return reject(err);
+      resolve({ totalProducts: row ? row.total : 0 });
+    });
+  });
+}
+
 module.exports = {
   initDb, saveProduct, saveHistory, getHistory, linkProductToUser, updateProductStatus, trashProduct, 
   getSetting, saveSetting, getActiveProducts, trashAllProducts, deleteAllTrash,
-  updateProductFeedback, getFlaggedProducts, getAdminStats, cleanupTrash
+  updateProductFeedback, getFlaggedProducts, getAdminStats, cleanupTrash, getPublicStats
 };

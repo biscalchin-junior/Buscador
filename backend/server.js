@@ -134,6 +134,15 @@ async function setupCron() {
 // Inicia o Cron Job na inicialização
 setTimeout(setupCron, 2000); // Aguarda db inicializar
 
+app.get('/api/public/stats', async (req, res) => {
+  try {
+    const stats = await getPublicStats();
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar estatísticas públicas.' });
+  }
+});
+
 app.post('/api/audit', authMiddleware, async (req, res) => {
   const { urls } = req.body; 
   

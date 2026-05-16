@@ -198,6 +198,7 @@ export default function SuperAdminPanel() {
             <thead>
               <tr className="border-b border-black">
                 <th className="p-4 font-bold uppercase">E-mail de Acesso</th>
+                <th className="p-4 font-bold uppercase">Produtos</th>
                 <th className="p-4 font-bold uppercase">Nível</th>
                 <th className="p-4 font-bold uppercase">Cadastro</th>
               </tr>
@@ -206,6 +207,11 @@ export default function SuperAdminPanel() {
               {users.map((u, i) => (
                 <tr key={i}>
                   <td className="p-4 font-bold uppercase">{u.email}</td>
+                  <td className="p-4">
+                    <span className="text-[10px] font-bold border border-black px-2 py-0.5">
+                      {u.product_count || 0} ITENS
+                    </span>
+                  </td>
                   <td className="p-4">
                     <span className={`px-2 py-0.5 text-[9px] font-bold border border-black ${u.role === 'SUPERADMIN' ? 'bg-black text-white' : 'bg-white text-black'}`}>
                       {u.role}

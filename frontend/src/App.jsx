@@ -53,10 +53,24 @@ const Navbar = ({ onAuthOpen }) => {
 
 // ── Hero / Search ─────────────────────────────────────────────────
 const Hero = ({ urlsInput, setUrlsInput, onSearch, loading }) => {
+  const [totalMonitored, setTotalMonitored] = useState(0);
   const handleKey = (e) => { if (e.key === 'Enter') onSearch(); };
+
+  useEffect(() => {
+    fetch(`${API_URL}/public/stats`)
+      .then(res => res.json())
+      .then(data => setTotalMonitored(data.totalProducts || 0))
+      .catch(() => {});
+  }, []);
+
   return (
     <section className="py-12 border-b border-black">
       <div className="section-container text-center">
+        <div className="flex justify-center mb-4">
+          <span className="text-[10px] font-bold border border-black px-3 py-1 uppercase tracking-widest bg-black text-white">
+            {totalMonitored.toLocaleString()} Produtos Monitorados Agora
+          </span>
+        </div>
         <h1 className="text-4xl font-bold mb-4 uppercase">Monitoramento de Preços</h1>
         <p className="text-sm mb-8">Insira o nome do produto ou o link da loja.</p>
         <div className="max-w-xl mx-auto flex gap-2 border border-black p-1">
@@ -152,7 +166,7 @@ const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-black">
-              {['Produto', 'Vendido por', 'Preço De', 'Preço Atual', 'Performance', 'Ações'].map(h => (
+              {['Produto', 'Vendido por', 'Preço De', 'Preço Atual', 'Parcelado', 'Performance', 'Ações'].map(h => (
                 <th key={h} className="p-4 font-bold uppercase">{h}</th>
               ))}
             </tr>
@@ -176,13 +190,33 @@ const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
                   <td className="p-4">
                     {latest.old_price > 0 && (
                       <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-gray-400 line-through">R$ {latest.old_price.toFixed(2)}</span>
-                          <span 
-                            title="DESCONTO REAL: Calculado pelo sistema comparando o preço de tabela ('Preço De') com o valor de captura atual. Diferente do marketing da loja, este valor mostra a economia matemática real." 
-                            className="text-[9px] font-bold text-red-500 cursor-help border-b border-dotted border-red-500"
-                          >
-                            -{(((latest.old_price - latest.main_price) / latest.old_price) * 100).toFixed(0)}% REAL
-                          </span>
+                        <span 
+                          title="PREÇO DE (MSRP): Este é o preço sugerido pelo fabricante ou pela loja. O sistema monitora se este valor foi alterado para 'inventar' descontos falsos."
+                          className="text-[10px] font-bold text-gray-400 line-through cursor-help border-b border-dotted border-gray-300"
+                        >
+                          R$ {latest.old_price.toFixed(2)}
+                        </span>
+                        
+                        {/* Histórico do Preço De */}
+                        {item.history && item.history.length > 1 && item.history[1].old_price !== latest.old_price && (
+                          <div className="flex flex-col mt-1 border-l-2 border-gray-200 pl-2">
+                             <span className="text-[8px] font-bold text-gray-300 line-through">
+                               ERAR$ {item.history[1].old_price?.toFixed(2)} ({new Date(item.history[1].date).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})})
+                             </span>
+                             {latest.old_price > item.history[1].old_price ? (
+                               <span className="text-[8px] font-bold text-orange-500 uppercase">▲ SUBIU MSRP</span>
+                             ) : (
+                               <span className="text-[8px] font-bold text-blue-500 uppercase">▼ BAIXOU MSRP</span>
+                             )}
+                          </div>
+                        )}
+
+                        <span 
+                          title="DESCONTO REAL: Calculado pelo sistema comparando o preço de tabela ('Preço De') com o valor de captura atual. Diferente do marketing da loja, este valor mostra a economia matemática real." 
+                          className="text-[9px] font-bold text-red-500 cursor-help border-b border-dotted border-red-500 mt-1"
+                        >
+                          -{(((latest.old_price - latest.main_price) / latest.old_price) * 100).toFixed(0)}% REAL
+                        </span>
                       </div>
                     )}
                     {(!latest.old_price || latest.old_price <= 0) && <span className="text-[10px] font-bold text-gray-300">S/ BASE</span>}
@@ -192,6 +226,31 @@ const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
                     <div className="text-[9px] font-bold text-gray-400 uppercase mt-1">
                       Captura: {latest.date ? new Date(latest.date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </div>
+                  </td>
+                  <td className="p-4 uppercase">
+                    {latest.installments_count ? (
+                      <div className="flex flex-col">
+                        <span className="font-bold">{latest.installments_count}x R$ {latest.installment_value?.toFixed(2)}</span>
+                        <div className="flex flex-col mt-0.5">
+                          <span className="text-[8px] text-gray-400 font-bold">TOTAL R$ {latest.installment_total?.toFixed(2)}</span>
+                          {(() => {
+                            const diff = latest.installment_total - latest.main_price;
+                            const diffPercent = (diff / latest.main_price) * 100;
+                            
+                            if (diffPercent > 0.10) {
+                              return (
+                                <span className="text-[8px] text-red-500 font-bold">
+                                  +{diffPercent.toFixed(1)}% ACRÉSCIMO
+                                </span>
+                              );
+                            }
+                            return <span className="text-[8px] text-green-500 font-bold">MESMO PREÇO</span>;
+                          })()}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-gray-300 font-bold">À VISTA</span>
+                    )}
                   </td>
                   <td className="p-4">
                     <div className="flex flex-col gap-1">
