@@ -72,6 +72,8 @@ function initDb() {
     
     // Default cron schedule (ex: todo dia as 00:00)
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('cron_schedule', '0 0 * * *')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('trash_retention_days', '60')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('trash_retention_days', '60')`);
     
     // Mapping table: Which user tracks which product
     db.run(`
@@ -80,9 +82,11 @@ function initDb() {
         asin TEXT,
         is_active BOOLEAN DEFAULT 1,
         is_deleted BOOLEAN DEFAULT 0,
+        deleted_at DATETIME,
         PRIMARY KEY(user_email, asin)
       )
     `);
+    db.run(`ALTER TABLE user_products ADD COLUMN deleted_at DATETIME`, () => {});
   });
 }
 
@@ -173,17 +177,26 @@ function saveHistory(historyData) {
 
 function getHistory(includeDeleted = false, userRole = 'SUPERADMIN', userEmail = null) {
   return new Promise((resolve, reject) => {
-    let query = `SELECT p.title, p.url, p.category, p.image_url, p.is_active, p.is_deleted, p.store, h.* 
-                 FROM products p 
-                 JOIN price_history h ON p.asin = h.asin `;
-                 
-    if (userRole === 'USER' && userEmail) {
-      query += ` JOIN user_products up ON p.asin = up.asin AND up.user_email = ? `;
+    let query, params;
+    
+    if (userEmail) {
+      // Isolamento total: Só vê o que VOCÊ adicionou
+      query = `SELECT p.title, p.url, p.category, p.image_url, p.is_active, p.store, h.*, up.is_deleted
+               FROM products p 
+               JOIN price_history h ON p.asin = h.asin 
+               JOIN user_products up ON p.asin = up.asin AND up.user_email = ?
+               WHERE up.is_deleted = ? 
+               ORDER BY h.date DESC`;
+      params = [userEmail, includeDeleted ? 1 : 0];
+    } else {
+      // Visão global (ex: busca pública ou admin sem filtro)
+      query = `SELECT p.title, p.url, p.category, p.image_url, p.is_active, p.store, h.*, p.is_deleted
+               FROM products p 
+               JOIN price_history h ON p.asin = h.asin 
+               WHERE p.is_deleted = ? 
+               ORDER BY h.date DESC`;
+      params = [includeDeleted ? 1 : 0];
     }
-    
-    query += ` WHERE p.is_deleted = ? ORDER BY h.date DESC`;
-    
-    const params = userRole === 'USER' && userEmail ? [userEmail, includeDeleted ? 1 : 0] : [includeDeleted ? 1 : 0];
 
     db.all(query, params, (err, rows) => {
       if (err) reject(err);
@@ -209,9 +222,27 @@ function updateProductStatus(asin, isActive) {
   });
 }
 
-function trashProduct(asin, isDeleted) {
+function trashProduct(asin, isDeleted, email = null) {
   return new Promise((resolve, reject) => {
-    db.run(`UPDATE products SET is_deleted = ? WHERE asin = ?`, [isDeleted ? 1 : 0, asin], err => err ? reject(err) : resolve());
+    if (email) {
+      db.run(
+        `UPDATE user_products SET is_deleted = ?, deleted_at = ? WHERE user_email = ? AND asin = ?`, 
+        [isDeleted ? 1 : 0, isDeleted ? new Date().toISOString() : null, email, asin], 
+        err => err ? reject(err) : resolve()
+      );
+    } else {
+      db.run(`UPDATE products SET is_deleted = ? WHERE asin = ?`, [isDeleted ? 1 : 0, asin], err => err ? reject(err) : resolve());
+    }
+  });
+}
+
+function cleanupTrash() {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT value FROM settings WHERE key = 'trash_retention_days'`, (err, row) => {
+      if (err) return reject(err);
+      const days = parseInt(row?.value) || 60;
+      db.run(`DELETE FROM user_products WHERE is_deleted = 1 AND deleted_at < datetime('now', '-' || ? || ' days')`, [days], err => err ? reject(err) : resolve());
+    });
   });
 }
 
@@ -273,42 +304,52 @@ function getAdminStats() {
   return new Promise((resolve, reject) => {
     const stats = {};
     db.get(`SELECT COUNT(*) as total FROM products WHERE is_deleted = 0`, (err, row) => {
-      if (err) return reject(err);
-      stats.totalProducts = row.total;
+      if (err) { console.error('[DB] Error totalProducts:', err); return reject(err); }
+      stats.totalProducts = row ? row.total : 0;
+      
       db.get(`SELECT COUNT(*) as total FROM products WHERE feedback_status = 'error'`, (err, row) => {
-        if (err) return reject(err);
-        stats.totalErrors = row.total;
+        if (err) { console.error('[DB] Error totalErrors:', err); return reject(err); }
+        stats.totalErrors = row ? row.total : 0;
         
-        // Top 100 Discounts: Penúltima vs Última Captura
-        const topQuery = `
-          SELECT 
-            p.asin, p.title, p.store, 
-            curr.main_price as current_price,
-            prev.main_price as last_price,
-            ((prev.main_price - curr.main_price) / prev.main_price * 100) as diff_percent
-          FROM products p
-          JOIN (
-            SELECT asin, main_price, id 
-            FROM price_history 
-            WHERE id IN (SELECT MAX(id) FROM price_history GROUP BY asin)
-          ) curr ON p.asin = curr.asin
-          JOIN (
-            SELECT h1.asin, h1.main_price
-            FROM price_history h1
-            WHERE h1.id = (
-              SELECT MAX(h2.id) 
-              FROM price_history h2 
-              WHERE h2.asin = h1.asin AND h2.id < (SELECT MAX(h3.id) FROM price_history h3 WHERE h3.asin = h1.asin)
-            )
-          ) prev ON p.asin = prev.asin
-          WHERE p.is_deleted = 0 AND curr.main_price < prev.main_price
-          ORDER BY diff_percent DESC
-          LIMIT 100
-        `;
-        db.all(topQuery, (err, rows) => {
-          if (err) return reject(err);
-          stats.topDiscounts = rows;
-          resolve(stats);
+        db.get(`SELECT COUNT(*) as total FROM users`, (err, row) => {
+          if (err) { console.error('[DB] Error totalUsers:', err); return reject(err); }
+          stats.totalUsers = row ? row.total : 0;
+          
+          db.get(`SELECT COUNT(*) as total FROM user_products WHERE is_deleted = 1`, (err, row) => {
+            if (err) { console.error('[DB] Error totalTrash:', err); return reject(err); }
+            stats.totalTrash = row ? row.total : 0;
+
+            const topQuery = `
+              SELECT 
+                p.asin, p.title, p.store, 
+                curr.main_price as current_price,
+                prev.main_price as last_price,
+                ((prev.main_price - curr.main_price) / prev.main_price * 100) as diff_percent
+              FROM products p
+              JOIN (
+                SELECT asin, main_price, id 
+                FROM price_history 
+                WHERE id IN (SELECT MAX(id) FROM price_history GROUP BY asin)
+              ) curr ON p.asin = curr.asin
+              JOIN (
+                SELECT h1.asin, h1.main_price
+                FROM price_history h1
+                WHERE h1.id = (
+                  SELECT MAX(h2.id) 
+                  FROM price_history h2 
+                  WHERE h2.asin = h1.asin AND h2.id < (SELECT MAX(h3.id) FROM price_history h3 WHERE h3.asin = h1.asin)
+                )
+              ) prev ON p.asin = prev.asin
+              WHERE p.is_deleted = 0 AND curr.main_price < prev.main_price
+              ORDER BY diff_percent DESC
+              LIMIT 100
+            `;
+            db.all(topQuery, (err, rows) => {
+              if (err) { console.error('[DB] Error topDiscounts:', err); return reject(err); }
+              stats.topDiscounts = rows || [];
+              resolve(stats);
+            });
+          });
         });
       });
     });
@@ -318,5 +359,5 @@ function getAdminStats() {
 module.exports = {
   initDb, saveProduct, saveHistory, getHistory, linkProductToUser, updateProductStatus, trashProduct, 
   getSetting, saveSetting, getActiveProducts, trashAllProducts, deleteAllTrash,
-  updateProductFeedback, getFlaggedProducts, getAdminStats
+  updateProductFeedback, getFlaggedProducts, getAdminStats, cleanupTrash
 };

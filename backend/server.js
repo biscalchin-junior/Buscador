@@ -5,7 +5,8 @@ const {
   initDb, saveProduct, saveHistory, getHistory, linkProductToUser,
   updateProductStatus, trashProduct, getSetting, 
   saveSetting, getActiveProducts, trashAllProducts,
-  deleteAllTrash, updateProductFeedback, getFlaggedProducts, getAdminStats
+  deleteAllTrash, updateProductFeedback, getFlaggedProducts, getAdminStats,
+  cleanupTrash
 } = require('./database');
 const { scrapeAmazon } = require('./scraper');
 const logger = require('./logger');
@@ -40,6 +41,22 @@ setInterval(() => {
   }
 }, 30000);
 
+// Tracker de CPU para Windows (já que os.loadavg() retorna 0)
+let lastCpuUsage = process.cpuUsage();
+let lastCpuTime = Date.now();
+let currentCpuPercent = "0.00%";
+
+setInterval(() => {
+  const currUsage = process.cpuUsage(lastCpuUsage);
+  const currTime = Date.now();
+  const deltaTime = (currTime - lastCpuTime) * 1000; // microsegundos
+  const totalUsage = (currUsage.user + currUsage.system) / (deltaTime * os.cpus().length);
+  currentCpuPercent = (totalUsage * 100).toFixed(2) + "%";
+  
+  lastCpuUsage = process.cpuUsage();
+  lastCpuTime = currTime;
+}, 2000);
+
 // Inicia o banco de dados
 initDb();
 initAuthDb();
@@ -67,6 +84,7 @@ app.get('/api/logs/stream', (req, res) => {
 async function runCronJob() {
   console.log('[CRON] Iniciando varredura automatizada...');
   try {
+    await cleanupTrash();
     const activeProducts = await getActiveProducts();
     if (!activeProducts || activeProducts.length === 0) {
       console.log('[CRON] Nenhum produto ativo para varrer.');
@@ -327,7 +345,8 @@ app.put('/api/product/:asin/toggle-active', async (req, res) => {
 
 app.put('/api/product/:asin/trash', async (req, res) => {
   try {
-    await trashProduct(req.params.asin, true);
+    const { asin } = req.params;
+    await trashProduct(asin, true, req.user.email);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao mover para lixeira.' });
@@ -336,7 +355,8 @@ app.put('/api/product/:asin/trash', async (req, res) => {
 
 app.put('/api/product/:asin/restore', async (req, res) => {
   try {
-    await trashProduct(req.params.asin, false);
+    const { asin } = req.params;
+    await trashProduct(asin, false, req.user.email);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao restaurar.' });
@@ -401,8 +421,9 @@ app.get('/api/settings', superadminMiddleware, async (req, res) => {
     const cronSchedule = await getSetting('cron_schedule') || '0 0 * * *';
     const isHeadless = await getSetting('is_headless') !== 'false';
     const loggingEnabled = await getSetting('logging_enabled') !== 'false';
+    const trashRetentionDays = await getSetting('trash_retention_days') || '60';
     
-    res.json({ cronSchedule, isHeadless, loggingEnabled });
+    res.json({ cronSchedule, isHeadless, loggingEnabled, trashRetentionDays });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao buscar configurações.' });
   }
@@ -410,7 +431,7 @@ app.get('/api/settings', superadminMiddleware, async (req, res) => {
 
 app.post('/api/settings', superadminMiddleware, async (req, res) => {
   try {
-    const { cronSchedule, isHeadless, loggingEnabled } = req.body;
+    const { cronSchedule, isHeadless, loggingEnabled, trashRetentionDays } = req.body;
     
     if (cronSchedule) {
       if (!cron.validate(cronSchedule)) {
@@ -429,6 +450,10 @@ app.post('/api/settings', superadminMiddleware, async (req, res) => {
       globalLoggingEnabled = loggingEnabled;
     }
 
+    if (trashRetentionDays !== undefined) {
+      await saveSetting('trash_retention_days', trashRetentionDays.toString());
+    }
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao salvar configuração.' });
@@ -439,7 +464,7 @@ app.get('/api/admin/stats', superadminMiddleware, async (req, res) => {
   try {
     const dbStats = await getAdminStats();
     const systemInfo = {
-      cpuUsage: (os.loadavg()[0] * 100 / os.cpus().length).toFixed(2) + '%',
+      cpuUsage: currentCpuPercent,
       memUsage: (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2) + ' MB',
       uptime: Math.floor(process.uptime()) + 's'
     };
@@ -454,7 +479,7 @@ app.get('/api/admin/stats', superadminMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/history/trash-all', async (req, res) => {
+app.post('/api/history/trash-all', superadminMiddleware, async (req, res) => {
   try {
     console.log('[API] Movendo todos os produtos para a lixeira...');
     await trashAllProducts();
@@ -465,7 +490,7 @@ app.post('/api/history/trash-all', async (req, res) => {
   }
 });
 
-app.delete('/api/history/empty-trash', async (req, res) => {
+app.delete('/api/history/empty-trash', superadminMiddleware, async (req, res) => {
   try {
     console.log('[API] Esvaziando a lixeira permanentemente...');
     await deleteAllTrash();

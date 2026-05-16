@@ -121,16 +121,21 @@ export default function SuperAdminPanel() {
 
       {tab === 'dashboard' && (
         <div className="space-y-8">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-2">
              {[
-               { label: 'Online', value: stats.liveUsers },
-               { label: 'Ativos', value: stats.totalProducts },
-               { label: 'Erros', value: stats.totalErrors },
-               { label: 'CPU', value: stats.system?.cpuUsage || '0%' },
-               { label: 'RAM', value: stats.system?.memUsage || '0MB' }
+               { label: 'Online', value: stats.liveUsers, desc: 'Conexões ativas agora' },
+               { label: 'Ativos', value: stats.totalProducts, desc: 'Produtos no catálogo' },
+               { label: 'Erros', value: stats.totalErrors, desc: 'Falhas na última captura' },
+               { label: 'Usuários', value: stats.totalUsers || 0, desc: 'Contas registradas' },
+               { label: 'Lixeiras', value: stats.totalTrash || 0, desc: 'Itens deletados (Total)' },
+               { label: 'CPU', value: stats.system?.cpuUsage || '0%', desc: 'Uso do processador' },
+               { label: 'RAM', value: stats.system?.memUsage || '0MB', desc: 'Memória em uso' }
              ].map((card, i) => (
-               <div key={i} className="border border-black p-4">
-                  <p className="text-[9px] font-bold uppercase">{card.label}</p>
+               <div key={i} className="border border-black p-4 flex flex-col justify-between group hover:bg-gray-50 transition-colors">
+                  <div>
+                    <p className="text-[9px] font-bold uppercase">{card.label}</p>
+                    <p className="text-[7px] text-gray-500 uppercase leading-tight mb-1">{card.desc}</p>
+                  </div>
                   <h4 className="text-xl font-bold">{card.value}</h4>
                </div>
              ))}
@@ -161,6 +166,56 @@ export default function SuperAdminPanel() {
                 </table>
              </div>
           </div>
+        </div>
+      )}
+
+      {tab === 'searches' && (
+        <div className="border border-black overflow-hidden">
+          <div className="p-4 border-b border-black font-bold uppercase text-xs">Pesquisas de Visitantes (Guest)</div>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-black">
+                <th className="p-4 font-bold uppercase">Termo / URL</th>
+                <th className="p-4 font-bold uppercase">Data</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black">
+              {searches.map((s, i) => (
+                <tr key={i}>
+                  <td className="p-4 truncate max-w-[400px] uppercase font-bold text-gray-700">{s.query || s.url}</td>
+                  <td className="p-4 text-[10px]">{new Date(s.timestamp).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'users' && (
+        <div className="border border-black overflow-hidden">
+          <div className="p-4 border-b border-black font-bold uppercase text-xs">Lista de Usuários do Sistema</div>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-black">
+                <th className="p-4 font-bold uppercase">E-mail de Acesso</th>
+                <th className="p-4 font-bold uppercase">Nível</th>
+                <th className="p-4 font-bold uppercase">Cadastro</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black">
+              {users.map((u, i) => (
+                <tr key={i}>
+                  <td className="p-4 font-bold uppercase">{u.email}</td>
+                  <td className="p-4">
+                    <span className={`px-2 py-0.5 text-[9px] font-bold border border-black ${u.role === 'SUPERADMIN' ? 'bg-black text-white' : 'bg-white text-black'}`}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="p-4 text-[10px]">{new Date(u.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -279,6 +334,18 @@ export default function SuperAdminPanel() {
                   </select>
                 </div>
                 <p className="text-[8px] font-bold text-gray-400 mt-1">SISTEMA TRADUZIU: {settings.cronSchedule}</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold block mb-2 uppercase">Permanência na Lixeira (Dias)</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  value={settings.trashRetentionDays || 60} 
+                  onChange={(e) => setSettings({...settings, trashRetentionDays: e.target.value})}
+                  className="border border-black w-full p-2 text-xs outline-none"
+                />
+                <p className="text-[8px] font-bold text-gray-400 mt-1">APÓS ESTE PRAZO, O ITEM É EXCLUÍDO DEFINITIVAMENTE.</p>
               </div>
             </div>
 

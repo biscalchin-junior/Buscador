@@ -99,10 +99,9 @@ const PublicResults = ({ results, onAuthOpen }) => {
 };
 
 // ── Dashboard ─────────────────────────────────────────────────────
-const Dashboard = ({ history, loading, onSearch }) => {
+const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
   const { token } = useAuth();
   const [searchFilter, setSearchFilter] = useState('');
-  const [viewMode, setViewMode] = useState('main');
 
   const toggleTrash = async (asin, isRestore) => {
     try {
@@ -153,7 +152,7 @@ const Dashboard = ({ history, loading, onSearch }) => {
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-black">
-              {['Produto', 'Vendido por', 'Preço De', 'Preço Atual', 'Variação', 'Gráfico', 'Ações'].map(h => (
+              {['Produto', 'Vendido por', 'Preço De', 'Preço Atual', 'Performance', 'Ações'].map(h => (
                 <th key={h} className="p-4 font-bold uppercase">{h}</th>
               ))}
             </tr>
@@ -165,10 +164,12 @@ const Dashboard = ({ history, loading, onSearch }) => {
                 <tr key={item.asin}>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 border border-black p-1 flex-shrink-0">
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="w-8 h-8 border border-black p-1 flex-shrink-0 hover:bg-gray-100 transition-colors">
                         <img src={item.image_url} alt="" className="w-full h-full object-contain" />
-                      </div>
-                      <span className="font-bold uppercase line-clamp-1 truncate max-w-[200px]">{latest.title}</span>
+                      </a>
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-bold uppercase line-clamp-1 truncate max-w-[200px] hover:underline">
+                        {latest.title}
+                      </a>
                     </div>
                   </td>
                   <td className="p-4 uppercase">{latest.main_seller || item.store}</td>
@@ -176,11 +177,12 @@ const Dashboard = ({ history, loading, onSearch }) => {
                     {latest.old_price > 0 && (
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-gray-400 line-through">R$ {latest.old_price.toFixed(2)}</span>
-                        {latest.old_price > latest.main_price && (
-                          <span className="text-[9px] font-bold text-red-500">
+                          <span 
+                            title="DESCONTO REAL: Calculado pelo sistema comparando o preço de tabela ('Preço De') com o valor de captura atual. Diferente do marketing da loja, este valor mostra a economia matemática real." 
+                            className="text-[9px] font-bold text-red-500 cursor-help border-b border-dotted border-red-500"
+                          >
                             -{(((latest.old_price - latest.main_price) / latest.old_price) * 100).toFixed(0)}% REAL
                           </span>
-                        )}
                       </div>
                     )}
                     {(!latest.old_price || latest.old_price <= 0) && <span className="text-[10px] font-bold text-gray-300">S/ BASE</span>}
@@ -192,20 +194,38 @@ const Dashboard = ({ history, loading, onSearch }) => {
                     </div>
                   </td>
                   <td className="p-4">
-                    {renderVariationBadge(item)}
-                    {item.history && item.history.length > 1 && (
-                      <div className="text-[9px] font-bold text-gray-400 uppercase mt-1">
-                        Anterior: {new Date(item.history[1].date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    <div className="flex flex-col gap-1">
+                      <div className="w-24 h-6">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={(item.history || []).map(h => ({ 
+                            price: h.main_price, 
+                            fullDate: new Date(h.date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) 
+                          })).reverse()}>
+                            <Tooltip 
+                              content={({ active, payload }) => {
+                                if (active && payload && payload.length) {
+                                  return (
+                                    <div className="bg-black text-white p-2 border border-black text-[9px] font-bold uppercase">
+                                      <div>R$ {payload[0].value.toFixed(2)}</div>
+                                      <div className="text-gray-400">{payload[0].payload.fullDate}</div>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              }}
+                            />
+                            <Line type="monotone" dataKey="price" stroke="#000000" strokeWidth={2} dot={{ r: 2, fill: '#000' }} activeDot={{ r: 4 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
                       </div>
-                    )}
-                  </td>
-                  <td className="p-4">
-                    <div className="w-24 h-8">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={(item.history || []).map(h => ({ price: h.main_price }))}>
-                          <Line type="monotone" dataKey="price" stroke="#000000" strokeWidth={2} dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      <div className="flex items-center gap-2">
+                        {renderVariationBadge(item)}
+                        {item.history && item.history.length > 1 && (
+                          <span className="text-[8px] font-bold text-gray-500 uppercase">
+                            EM {new Date(item.history[1].date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ERA R$ {item.history[1].main_price?.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="p-4">
@@ -213,7 +233,9 @@ const Dashboard = ({ history, loading, onSearch }) => {
                       <button onClick={() => handleRescan(item.url)} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase bg-black text-white">SINC</button>
                       <button onClick={() => handleFeedback(item.asin, 'ok')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase">OK</button>
                       <button onClick={() => handleFeedback(item.asin, 'error')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase text-red-500">ERRO</button>
-                      <button onClick={() => toggleTrash(item.asin, viewMode === 'trash')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase">DEL</button>
+                      <button onClick={() => toggleTrash(item.asin, viewMode === 'trash')} className="border border-black px-2 py-0.5 text-[9px] font-bold uppercase">
+                        {viewMode === 'trash' ? 'Restaurar' : 'DEL'}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -234,16 +256,18 @@ function InnerApp() {
   const [history, setHistory] = useState([]);
   const [publicResults, setPublicResults] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('main');
 
   const fetchHistory = async () => {
     try {
       if (!token) return;
-      const res = await fetch(`${API_URL}/history?trash=false`, { headers: { Authorization: `Bearer ${token}` } });
+      const isTrash = viewMode === 'trash';
+      const res = await fetch(`${API_URL}/history?trash=${isTrash}`, { headers: { Authorization: `Bearer ${token}` } });
       setHistory(await res.json());
     } catch { }
   };
 
-  useEffect(() => { if (!isGuest) fetchHistory(); }, [isGuest]);
+  useEffect(() => { if (!isGuest) fetchHistory(); }, [isGuest, viewMode]);
 
   const handleSearch = async () => {
     if (!urlsInput.trim()) return;
@@ -279,7 +303,15 @@ function InnerApp() {
         <Hero urlsInput={urlsInput} setUrlsInput={setUrlsInput} onSearch={handleSearch} loading={loading} />
         
         {isGuest && publicResults !== null && <PublicResults results={publicResults} onAuthOpen={() => setAuthOpen(true)} />}
-        {!isGuest && <Dashboard history={history} loading={loading} onSearch={fetchHistory} />}
+        {!isGuest && (
+        <Dashboard 
+          history={history} 
+          loading={loading} 
+          onSearch={fetchHistory} 
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+        />
+      )}
       </main>
       <footer className="py-8 border-t border-black text-center text-[10px] font-bold uppercase">
         © 2026 Buscador.ai — Brutalist Version
