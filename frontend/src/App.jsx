@@ -116,6 +116,7 @@ const PublicResults = ({ results, onAuthOpen }) => {
 const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
   const { token } = useAuth();
   const [searchFilter, setSearchFilter] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: 'performance', direction: 'desc' });
 
   const toggleTrash = async (asin, isRestore) => {
     try {
@@ -147,9 +148,47 @@ const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
     } catch { }
   };
 
-  const filtered = (history || []).filter(item => 
-    !searchFilter || item.title?.toLowerCase().includes(searchFilter.toLowerCase()) || item.asin?.toLowerCase().includes(searchFilter.toLowerCase())
-  );
+  const requestSort = (key) => {
+    let direction = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedItems = useMemo(() => {
+    const items = (history || []).filter(item => 
+      !searchFilter || item.title?.toLowerCase().includes(searchFilter.toLowerCase()) || item.asin?.toLowerCase().includes(searchFilter.toLowerCase())
+    );
+
+    return [...items].sort((a, b) => {
+      const aLatest = a.latest || {};
+      const bLatest = b.latest || {};
+      
+      let aValue, bValue;
+
+      switch (sortConfig.key) {
+        case 'product':
+          aValue = (aLatest.title || '').toLowerCase();
+          bValue = (bLatest.title || '').toLowerCase();
+          break;
+        case 'price':
+          aValue = aLatest.main_price || 0;
+          bValue = bLatest.main_price || 0;
+          break;
+        case 'performance':
+          aValue = aLatest.old_price ? ((aLatest.old_price - aLatest.main_price) / aLatest.old_price) : -Infinity;
+          bValue = bLatest.old_price ? ((bLatest.old_price - bLatest.main_price) / bLatest.old_price) : -Infinity;
+          break;
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [history, searchFilter, sortConfig]);
 
   return (
     <section className="py-12 section-container">
@@ -166,13 +205,31 @@ const Dashboard = ({ history, loading, onSearch, viewMode, setViewMode }) => {
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-black">
-              {['Produto', 'Vendido por', 'Preço De', 'Preço Atual', 'Parcelado', 'Performance', 'Ações'].map(h => (
-                <th key={h} className="p-4 font-bold uppercase">{h}</th>
+              {[
+                { label: 'Produto', key: 'product' },
+                { label: 'Vendido por', key: null },
+                { label: 'Preço De', key: null },
+                { label: 'Preço Atual', key: 'price' },
+                { label: 'Parcelado', key: null },
+                { label: 'Performance', key: 'performance' },
+                { label: 'Ações', key: null }
+              ].map(h => (
+                <th key={h.label} className="p-4 font-bold uppercase">
+                  {h.key ? (
+                    <button 
+                      onClick={() => requestSort(h.key)}
+                      className={`flex items-center gap-1 hover:underline ${sortConfig.key === h.key ? 'text-blue-600' : ''}`}
+                    >
+                      {h.label}
+                      {sortConfig.key === h.key && (sortConfig.direction === 'asc' ? ' ▲' : ' ▼')}
+                    </button>
+                  ) : h.label}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-black">
-            {filtered.map(item => {
+            {sortedItems.map(item => {
               const latest = item.latest || {};
               return (
                 <tr key={item.asin}>

@@ -20,6 +20,7 @@ O sistema foi atualizado para uma arquitetura de **Dashboard Isolado**.
 - **Limpeza Automática**: Existe um cron job que limpa itens da lixeira após X dias (configurável no Painel Admin).
 - **MSRP/Parcelado**: O sistema monitora mudanças no "Preço De" e calcula taxas de acréscimo no parcelamento com tolerância de 0.10%.
 - **Social Proof**: A home agora exibe um contador público de produtos monitorados.
+- **Ordenação Inteligente**: O Dashboard agora ordena automaticamente pelos melhores descontos (Performance) e permite clicar nos cabeçalhos para reordenar por Nome ou Preço.
 
 ## 🤖 Orientações para o Antigravity
 Ao abrir este projeto:
